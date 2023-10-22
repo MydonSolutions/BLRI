@@ -1,0 +1,13 @@
+
+def degrees_process(value):
+    if isinstance(value, str):
+        units_factor = 1
+        value_f = 0
+        for part in value.split(':'):
+            value_f += float(part)/units_factor
+            if units_factor == 1:
+                units_factor *= -1 if value_f < 0 else 1
+            units_factor *= 60
+
+        return value_f
+    return float(value)
