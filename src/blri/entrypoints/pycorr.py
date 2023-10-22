@@ -77,6 +77,11 @@ def main(arg_strs: list = None):
         help="The path to which the output will be written (instead of alongside the raw_filepath).",
     )
     parser.add_argument(
+        "--cupy",
+        action="store_true",
+        help="Use cupy for DSP operations.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -90,6 +95,8 @@ def main(arg_strs: list = None):
             logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG
         ][args.verbose]
     )
+    if args.cupy:
+        dsp.compute_with_cupy()
 
     datablock_time_requirement = args.upchannelisation_rate
 
@@ -227,7 +234,7 @@ def main(arg_strs: list = None):
         datasize_processed = 0
         integration_count = 0
         # Integrate fine spectra in a separate buffer
-        integration_buffer = numpy.zeros(flags.shape, dtype="D")
+        integration_buffer = dsp.compy.zeros(flags.shape, dtype="D")
         while True:
             datablock = numpy.concatenate(
                 (datablock, guppi_data),
@@ -245,7 +252,9 @@ def main(arg_strs: list = None):
 
             while datablock.shape[2] >= datablock_time_requirement:
                 datablock_residual = datablock[:, :, datablock_time_requirement:, :]
-                datablock = datablock[:, :, 0:datablock_time_requirement, :]
+                datablock = dsp.compy.array(
+                    datablock[:, :, 0:datablock_time_requirement, :]
+                )
 
                 datablock_bytesize = datablock.size * datablock.itemsize
 

@@ -112,7 +112,8 @@ class TestEntrypointPycorr(unittest.TestCase):
         blockcount=20,
         blockshape=(3, 16, 128, 2),
         upchannelisation_rate=1024,
-        integration_rate=64
+        integration_rate=64,
+        cupy=False
     ):
         rng = numpy.random.default_rng(3141592635**3)
         filepath_reference_output = os.path.join(
@@ -144,13 +145,17 @@ class TestEntrypointPycorr(unittest.TestCase):
             nof_blocks=blockcount
         )
 
-        pycorr_main(map(str, [
+        args = [
             "-t", filepath_telinfo,
             "-u", upchannelisation_rate,
             "-i", integration_rate,
             "--output-filepath", filepath_output,
             filepath_gr
-        ]))
+        ]
+        if cupy:
+            args.insert(0, "--cupy")
+
+        pycorr_main(map(str, args))
 
         assert filecmp.cmp(
             filepath_output,
