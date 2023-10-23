@@ -111,8 +111,8 @@ class TestEntrypointPycorr(unittest.TestCase):
         self,
         blockcount=20,
         blockshape=(3, 16, 128, 2),
-        upchannelisation_rate=1024,
-        integration_rate=64,
+        upchannelisation_rate=4,
+        integration_rate=128,
         cupy=False
     ):
         rng = numpy.random.default_rng(3141592635**3)
