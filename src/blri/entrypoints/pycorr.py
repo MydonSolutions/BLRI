@@ -71,6 +71,18 @@ def main(arg_strs: list = None):
         help="The highest frequency (MHz) of the fine-spectra to analyse (at least 1 channel will be processed).",
     )
     parser.add_argument(
+        "-sp", "--frequency-selection-percentage",
+        type=float,
+        default=None,
+        help="A decimal percentage of the bandwidth to process: [0.0, 1.0].",
+    )
+    parser.add_argument(
+        "-sc", "--frequency-selection-center",
+        type=float,
+        default=0.5,
+        help="Specifies the center of the sub-band, when processing a percentage of the bandwidth: [0.0, 1.0].",
+    )
+    parser.add_argument(
         "--output-filepath",
         type=str,
         default=None,
@@ -134,6 +146,14 @@ def main(arg_strs: list = None):
 
     frequency_lowest_mhz = min(frequencies_mhz[0], frequencies_mhz[-1])
     frequency_highest_mhz = max(frequencies_mhz[0], frequencies_mhz[-1])
+
+    if args.frequency_selection_percentage is not None:
+      frequencies_mhz_range = frequency_highest_mhz-frequency_lowest_mhz
+      subband_mhz_center = args.frequency_selection_center*frequencies_mhz_range + frequency_lowest_mhz
+      subband_mhz_range = args.frequency_selection_percentage*frequencies_mhz_range
+      args.frequency_mhz_begin = subband_mhz_center - subband_mhz_range/2
+      args.frequency_mhz_end = subband_mhz_center + subband_mhz_range/2
+
     if args.frequency_mhz_begin is None:
         args.frequency_mhz_begin = frequency_lowest_mhz
     elif args.frequency_mhz_begin < frequency_lowest_mhz:
