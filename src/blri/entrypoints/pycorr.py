@@ -312,7 +312,7 @@ def main(arg_strs: list = None):
                     ),
                     jd_time_array,
                     integration_time,
-                    integration_buffer,
+                    integration_buffer.get() if args.cupy else integration_buffer,
                     flags,
                     nsamples,
                 )
