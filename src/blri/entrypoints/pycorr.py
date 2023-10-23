@@ -312,7 +312,7 @@ def main(arg_strs: list = None):
                     ),
                     jd_time_array,
                     integration_time,
-                    integration_buffer.get() if args.cupy else integration_buffer,
+                    integration_buffer.get() if dsp.cupy_enabled else integration_buffer,
                     flags,
                     nsamples,
                 )
@@ -331,3 +331,5 @@ def main(arg_strs: list = None):
                 break
             if guppi_handler._guppi_file_index != _guppi_file_index:
                 last_file_pos = 0
+    
+    return output_filepath
