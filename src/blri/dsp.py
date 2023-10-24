@@ -5,6 +5,12 @@ compy = numpy
 correlate_kernel = None
 
 
+def compute_with_numpy():
+    global compy, cupy_enabled
+    compy = numpy
+    cupy_enabled = False
+
+
 def compute_with_cupy():
     global compy, cupy_enabled, correlate_kernel
     import cupy
@@ -16,33 +22,38 @@ def compute_with_cupy():
 
     extern "C" __global__
     void correlate_kernel(
-        const int length_FT,
-        const complex<float>* x, complex<double>* y
+        const int length_FT, const int length_A,
+        const complex<float>* x, const complex<float>* x_conj,
+        complex<double>* y
     ) {
-        if (blockIdx.y > blockIdx.z) {
-            // only compute upper triangle
-            return;
-        }
-
         int ft_idx = blockDim.x * blockIdx.x + threadIdx.x;
         if (ft_idx >= length_FT) {
             return;
         }
 
         // auto baseline index
-        int bl_idx = blockIdx.y;
-        // cross baseline index
-        if (blockIdx.y < blockIdx.z) {
-            bl_idx = gridDim.y;
-            bl_idx += (blockIdx.y*(blockIdx.y+1))/2;
-            bl_idx += (gridDim.y-1-blockIdx.y)*blockIdx.y;
-            bl_idx += blockIdx.z-1-blockIdx.y;
+        int antidx_0 = blockIdx.y;
+        int antidx_1 = blockIdx.y;
+
+        if (blockIdx.y >= length_A) {
+            // cross baseline index
+            antidx_0 = ((2*length_A)-1);
+            antidx_0 *= antidx_0;
+            antidx_0 += (8*length_A) - (8*blockIdx.y);
+            double antidx_f0 = sqrt((double)antidx_0);
+            antidx_f0 += (-2*length_A)+1;
+            antidx_0 = int(antidx_f0/-2.0);
+
+            antidx_1 = blockIdx.y - length_A;
+            antidx_1 -= (antidx_0)*(antidx_0+1)/2;
+            antidx_1 -= (length_A-1-antidx_0)*antidx_0;
+            antidx_1 -= -1-antidx_0;
         }
 
-        y[(bl_idx*length_FT + ft_idx)*4 + 0] = x[(blockIdx.y*length_FT + ft_idx)*2+0] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+0]);
-        y[(bl_idx*length_FT + ft_idx)*4 + 1] = x[(blockIdx.y*length_FT + ft_idx)*2+0] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+1]);
-        y[(bl_idx*length_FT + ft_idx)*4 + 2] = x[(blockIdx.y*length_FT + ft_idx)*2+1] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+0]);
-        y[(bl_idx*length_FT + ft_idx)*4 + 3] = x[(blockIdx.y*length_FT + ft_idx)*2+1] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+1]);
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 0] = x[(antidx_0*length_FT + ft_idx)*2+0] * x_conj[(antidx_1*length_FT + ft_idx)*2+0];
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 1] = x[(antidx_0*length_FT + ft_idx)*2+0] * x_conj[(antidx_1*length_FT + ft_idx)*2+1];
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 2] = x[(antidx_0*length_FT + ft_idx)*2+1] * x_conj[(antidx_1*length_FT + ft_idx)*2+0];
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 3] = x[(antidx_0*length_FT + ft_idx)*2+1] * x_conj[(antidx_1*length_FT + ft_idx)*2+1];
     }
     ''', "correlate_kernel")
 
@@ -161,13 +172,13 @@ def correlate(
         ),
         dtype='D'
     )
-    
+
     if cupy_enabled and not isinstance(datablock, numpy.ndarray):
         assert datablock.dtype == numpy.complex64
-        ft = F * T
+        FT = F * T
         threads=(512,)
-        blocks=((ft+511)//512, A, A)
-        correlate_kernel(blocks, threads, (ft, datablock, corr))
+        blocks=((FT+511)//512, A*(A+1)//2)
+        correlate_kernel(blocks, threads, (FT, A, datablock, compy.conj(datablock), corr))
         return corr
 
     datablock_conj = compy.conjugate(datablock)

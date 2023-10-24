@@ -107,20 +107,26 @@ class TestEntrypointPycorr(unittest.TestCase):
 
             gr_header.packet_index += gr_header.nof_packet_indices_per_block
 
-    def test_entrypoint(
+    @staticmethod
+    def get_entrypoint_test_identifier(
+        **kwargs
+    ):
+        blockcount = kwargs["blockcount"]
+        blockshape = kwargs["blockshape"]
+        upchannelisation_rate = kwargs["upchannelisation_rate"]
+        integration_rate = kwargs["integration_rate"]
+        return f"{blockcount}x{'_'.join(map(str,blockshape))}.u{upchannelisation_rate}i{integration_rate}"
+
+    def run_entrypoint(
         self,
-        blockcount=20,
-        blockshape=(3, 16, 128, 2),
-        upchannelisation_rate=4,
-        integration_rate=128,
-        cupy=False
+        blockcount,
+        blockshape,
+        upchannelisation_rate,
+        integration_rate,
+        filepath_reference_output: str,
+        cupy,
     ):
         rng = numpy.random.default_rng(3141592635**3)
-        filepath_reference_output = os.path.join(
-            os.path.dirname(__file__),
-            "references",
-            f"test.{blockcount}x{'_'.join(map(str,blockshape))}.u{upchannelisation_rate}i{integration_rate}.uvh5"
-        )
         filepath_telinfo = "test_telinfo.yaml"
         filepath_gr = "test.0000.raw"
         filepath_output = "test.uvh5"
@@ -163,6 +169,39 @@ class TestEntrypointPycorr(unittest.TestCase):
             shallow=False
         )
 
+    def test_entrypoint(self):
+        tests = [
+            {
+                "blockcount":20,
+                "blockshape":(3,16,128,2),
+                "upchannelisation_rate":4,
+                "integration_rate":128,
+            },
+            {
+                "blockcount":20,
+                "blockshape":(8,16,16,2),
+                "upchannelisation_rate":2,
+                "integration_rate":128,
+            }
+        ]
+        for test_params in tests:
+            for cupy in [False, True]:
+                identifier = self.get_entrypoint_test_identifier(
+                    **test_params
+                )
+                with self.subTest(identifier + f"(CuPY: {cupy})"):
+                    filepath_reference_output = os.path.join(
+                        os.path.dirname(__file__),
+                        "references",
+                        f"test.{identifier}.uvh5"
+                    )
+
+                    self.run_entrypoint(
+                        *test_params.values(),
+                        filepath_reference_output,
+                        cupy=cupy,
+                    )
+
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main(verbosity=3)

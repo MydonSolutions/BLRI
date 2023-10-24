@@ -109,6 +109,8 @@ def main(arg_strs: list = None):
     )
     if args.cupy:
         dsp.compute_with_cupy()
+    else:
+        dsp.compute_with_numpy()
 
     datablock_time_requirement = args.upchannelisation_rate
 
