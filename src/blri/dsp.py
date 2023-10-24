@@ -37,12 +37,9 @@ def compute_with_cupy():
 
         if (blockIdx.y >= length_A) {
             // cross baseline index
-            antidx_0 = ((2*length_A)-1);
-            antidx_0 *= antidx_0;
-            antidx_0 += (8*length_A) - (8*blockIdx.y);
-            double antidx_f0 = sqrt((double)antidx_0);
-            antidx_f0 += (-2*length_A)+1;
-            antidx_0 = int(antidx_f0/-2.0);
+            const double m = length_A - 0.5;
+            const float u = sqrt(m*m - 2*blockIdx.y + 2*length_A);
+            antidx_0 = int(m - u);
 
             antidx_1 = blockIdx.y - length_A;
             antidx_1 -= (antidx_0)*(antidx_0+1)/2;
