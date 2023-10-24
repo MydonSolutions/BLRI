@@ -1,10 +1,9 @@
 from typing import List
+from dataclasses import dataclass
+
 import numpy
 import h5py
-
 import erfa
-
-from pydantic import BaseModel
 
 from blri.fileformats.telinfo import AntennaDetail
 
@@ -105,7 +104,8 @@ def get_uvw_array(
     ])
 
 
-class Uvh5DynamicDatasets(BaseModel, arbitrary_types_allowed=True):
+@dataclass
+class Uvh5DynamicDatasets:
     header_ntimes: h5py.Dataset
     header_nblts: h5py.Dataset
     header_ant_1_array: h5py.Dataset
@@ -210,7 +210,6 @@ def uvh5_write_chunk(
     flags,
     nsamples,
 ):
-
     num_bls, num_freqs, num_polprods = visdata.shape
 
     uvh5_datasets.header_ntimes[()] += 1
