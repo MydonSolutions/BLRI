@@ -2,7 +2,7 @@ import numpy
 
 cupy_enabled = False
 compy = numpy
-correlate_kernel = None
+correlate_kernels = None
 
 
 def compute_with_numpy():
@@ -12,18 +12,18 @@ def compute_with_numpy():
 
 
 def compute_with_cupy():
-    global compy, cupy_enabled, correlate_kernel
+    global compy, cupy_enabled, correlate_kernels
     import cupy
     compy = cupy
     cupy_enabled = True
 
-    correlate_kernel = compy.RawKernel(r'''
+    kernel_str = r'''
     #include <cupy/complex.cuh>
 
     extern "C" __global__
-    void correlate_kernel(
+    void correlate_kernel_$TYPE$(
         const int length_FT, const int length_A,
-        const complex<float>* x, const complex<float>* x_conj,
+        const complex<$TYPE$>* x, const complex<$TYPE$>* x_conj,
         complex<double>* y
     ) {
         int ft_idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -55,7 +55,17 @@ def compute_with_cupy():
         y[(blockIdx.y*length_FT + ft_idx)*4 + 2] = x[(antidx_0*length_FT + ft_idx)*2+1] * x_conj[(antidx_1*length_FT + ft_idx)*2+0];
         y[(blockIdx.y*length_FT + ft_idx)*4 + 3] = x[(antidx_0*length_FT + ft_idx)*2+1] * x_conj[(antidx_1*length_FT + ft_idx)*2+1];
     }
-    ''', "correlate_kernel")
+    '''
+    correlate_kernels = {
+        numpy.dtype(numpytype): compy.RawKernel(
+            kernel_str.replace("$TYPE$", ctype),
+            f"correlate_kernel_{ctype}"
+        )
+        for numpytype, ctype in [
+            (numpy.complex64, "float"),
+            (numpy.complex128, "double"),
+        ]
+    }
 
 
 def upchannelise(
@@ -73,7 +83,6 @@ def upchannelise(
     -------
     compy.ndarray: [Antenna, Frequency*rate, Time//rate, Polarization]
     """
-    global compy
 
     if rate == 1:
         return datablock
@@ -124,7 +133,6 @@ def _correlate_antenna_data(
     Returns:
         compy.ndarray: [Frequency, Time, Polarization*Polarization]
     """
-    global compy
 
     assert ant1_data.shape == ant2_data.shape, "Antenna data must have the same shape"
 
@@ -157,7 +165,6 @@ def correlate(
             the auto-baselines come first, followed by the cross-baselines,
             in order [Antenna-Baseline, Frequency, Time, Polarization*Polarization]
     """
-    global compy, cupy_enabled, correlate_kernel
 
     A, F, T, P = datablock.shape
     assert P == 2, f"Expecting 2 polarisations, not {P}."
@@ -174,7 +181,8 @@ def correlate(
     )
 
     if cupy_enabled and not isinstance(datablock, numpy.ndarray):
-        assert datablock.dtype == numpy.complex64
+        correlate_kernel = correlate_kernels[datablock.dtype]
+
         FT = F * T
         threads=(512,)
         blocks=((FT+511)//512, A*(A+1)//2)

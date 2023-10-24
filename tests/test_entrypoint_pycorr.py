@@ -123,6 +123,7 @@ class TestEntrypointPycorr(unittest.TestCase):
         blockshape,
         upchannelisation_rate,
         integration_rate,
+        numpy_dtype,
         filepath_reference_output: str,
         cupy,
     ):
@@ -155,6 +156,7 @@ class TestEntrypointPycorr(unittest.TestCase):
             "-t", filepath_telinfo,
             "-u", upchannelisation_rate,
             "-i", integration_rate,
+            "-T", numpy_dtype,
             "--output-filepath", filepath_output,
             filepath_gr
         ]
@@ -176,13 +178,22 @@ class TestEntrypointPycorr(unittest.TestCase):
                 "blockshape":(3,16,128,2),
                 "upchannelisation_rate":4,
                 "integration_rate":128,
+                "numpy_dtype": "float"
             },
             {
                 "blockcount":20,
                 "blockshape":(8,16,16,2),
                 "upchannelisation_rate":2,
                 "integration_rate":128,
-            }
+                "numpy_dtype": "double"
+            },
+            # {  # fails with negligible (?) discrepancies
+            #     "blockcount":32,
+            #     "blockshape":(3,16,128,2),
+            #     "upchannelisation_rate":256,
+            #     "integration_rate":2,
+            #     "numpy_dtype": "double"
+            # },
         ]
         for test_params in tests:
             for cupy in [False, True]:

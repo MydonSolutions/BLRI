@@ -94,6 +94,12 @@ def main(arg_strs: list = None):
         help="Use cupy for DSP operations.",
     )
     parser.add_argument(
+        "-T", "--dtype",
+        type=str,
+        default="float32",
+        help="The numpy.dtype to load the GUPPI RAW data as (passed as an argument to `numpy.dtype()`)."
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -107,6 +113,8 @@ def main(arg_strs: list = None):
             logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG
         ][args.verbose]
     )
+    guppi_block_astype_dtype = numpy.dtype(args.dtype)
+
     if args.cupy:
         dsp.compute_with_cupy()
     else:
@@ -127,7 +135,7 @@ def main(arg_strs: list = None):
     guppi_bytes_total = numpy.sum(list(map(os.path.getsize, guppi_handler._guppi_filepaths)))
     blri_logger.debug(f"Total GUPPI RAW bytes: {guppi_bytes_total/(10**6)} MB")
 
-    guppi_blocks_iter = guppi_handler.blocks()
+    guppi_blocks_iter = guppi_handler.blocks(astype=guppi_block_astype_dtype.type)
     guppi_header, guppi_data = next(guppi_blocks_iter)
     if hasattr(guppi_header, "antenna_names"):
         telinfo.antennas = blri_telinfo.filter_and_reorder_antenna_in_telinfo(
@@ -196,8 +204,7 @@ def main(arg_strs: list = None):
     blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
     frequencies_mhz += 0.5 * upchan_bw
 
-    guppi_header["POLS"] = guppi_header.get("POLS", args.polarisations)
-    polarisation_chars = guppi_header["POLS"]
+    polarisation_chars = guppi_header.get("POLS", args.polarisations)
     assert polarisation_chars is not None
 
     assert len(polarisation_chars) == npol
@@ -353,5 +360,5 @@ def main(arg_strs: list = None):
                 break
             if guppi_handler._guppi_file_index != _guppi_file_index:
                 last_file_pos = 0
-    
+
     return output_filepath
