@@ -1,12 +1,50 @@
 import numpy
 
+cupy_enabled = False
 compy = numpy
+correlate_kernel = None
 
 
 def compute_with_cupy():
-    global compy
+    global compy, cupy_enabled, correlate_kernel
     import cupy
     compy = cupy
+    cupy_enabled = True
+
+    correlate_kernel = compy.RawKernel(r'''
+    #include <cupy/complex.cuh>
+
+    extern "C" __global__
+    void correlate_kernel(
+        const int length_FT,
+        const complex<float>* x, complex<double>* y
+    ) {
+        if (blockIdx.y > blockIdx.z) {
+            // only compute upper triangle
+            return;
+        }
+
+        int ft_idx = blockDim.x * blockIdx.x + threadIdx.x;
+        if (ft_idx >= length_FT) {
+            return;
+        }
+
+        // auto baseline index
+        int bl_idx = blockIdx.y;
+        // cross baseline index
+        if (blockIdx.y < blockIdx.z) {
+            bl_idx = gridDim.y;
+            bl_idx += (blockIdx.y*(blockIdx.y+1))/2;
+            bl_idx += (gridDim.y-1-blockIdx.y)*blockIdx.y;
+            bl_idx += blockIdx.z-1-blockIdx.y;
+        }
+
+        y[(bl_idx*length_FT + ft_idx)*4 + 0] = x[(blockIdx.y*length_FT + ft_idx)*2+0] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+0]);
+        y[(bl_idx*length_FT + ft_idx)*4 + 1] = x[(blockIdx.y*length_FT + ft_idx)*2+0] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+1]);
+        y[(bl_idx*length_FT + ft_idx)*4 + 2] = x[(blockIdx.y*length_FT + ft_idx)*2+1] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+0]);
+        y[(bl_idx*length_FT + ft_idx)*4 + 3] = x[(blockIdx.y*length_FT + ft_idx)*2+1] * conj(x[(blockIdx.z*length_FT + ft_idx)*2+1]);
+    }
+    ''', "correlate_kernel")
 
 
 def upchannelise(
@@ -108,13 +146,11 @@ def correlate(
             the auto-baselines come first, followed by the cross-baselines,
             in order [Antenna-Baseline, Frequency, Time, Polarization*Polarization]
     """
-    global compy
+    global compy, cupy_enabled, correlate_kernel
 
     A, F, T, P = datablock.shape
     assert P == 2, f"Expecting 2 polarisations, not {P}."
     assert A > 1, "Expecting more than 1 antenna"
-
-    datablock_conj = compy.conjugate(datablock)
 
     corr = compy.zeros(
         (
@@ -125,6 +161,16 @@ def correlate(
         ),
         dtype='D'
     )
+    
+    if cupy_enabled and not isinstance(datablock, numpy.ndarray):
+        assert datablock.dtype == numpy.complex64
+        ft = F * T
+        threads=(512,)
+        blocks=((ft+511)//512, A, A)
+        correlate_kernel(blocks, threads, (ft, datablock, corr))
+        return corr
+
+    datablock_conj = compy.conjugate(datablock)
     correlation_index = 0
 
     # auto correlations first
