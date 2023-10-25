@@ -1,10 +1,9 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools", "setuptools-scm", "setuptools-git-versioning"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "BLRI"
-version = "0.0.9"
 authors = [
   { name="Ross Donnachie", email="code@radonn.co.za" },
 ]
@@ -26,6 +25,17 @@ dependencies = [
   "pydantic",
   "numpy"
 ]
+dynamic = ["version"]
+
+[tool.setuptools-git-versioning]
+enabled = true
+version_file = "src/blri/VERSION"
+
+[tool.setuptools.package-data]
+blri = ["VERSION"]
+
+[tool.setuptools]
+zip-safe = false
 
 [project.scripts]
 blri_pycorr = "blri.entrypoints.pycorr:main"

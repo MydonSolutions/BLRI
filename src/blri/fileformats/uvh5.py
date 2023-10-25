@@ -6,6 +6,7 @@ import h5py
 import erfa
 
 from blri.fileformats.telinfo import AntennaDetail
+from blri import __version__
 
 
 POLARISATION_MAP = {
@@ -145,7 +146,7 @@ def uvh5_initialise(
     uvh5g_header.create_dataset("telescope_name", data=telescope_name.encode())
     uvh5g_header.create_dataset("instrument", data=instrument_name.encode())
     uvh5g_header.create_dataset("object_name", data=source_name.encode())
-    uvh5g_header.create_dataset("history", data="github.com/MydonSolutions/pycorr")
+    uvh5g_header.create_dataset("history", data=f"github.com/MydonSolutions/BLRI v{__version__}")
     uvh5g_header.create_dataset("phase_type", data="phased")
     uvh5g_header.create_dataset("Nants_data", data=len(antennas))
     uvh5g_header.create_dataset("Nants_telescope", data=len(antennas))
@@ -240,3 +241,46 @@ def uvh5_write_chunk(
 
     uvh5_datasets.data_nsamples.resize((num_bltimes, num_freqs, num_polprods))
     uvh5_datasets.data_nsamples[-num_bls:, :, :] = nsamples
+
+
+def _uvh5_field_is_equal(
+        h5_a_field,
+        h5_b_field,
+    ):
+    if h5_a_field.shape == tuple():
+        return h5_a_field[()] == h5_b_field[()]
+    else:
+        return (h5_a_field[:] == h5_b_field[:]).all()
+
+
+def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: float=1e-5):
+    with h5py.File(filepath_a, 'r') as h5_a:
+        with h5py.File(filepath_b, 'r') as h5_b:
+            header_differences = [
+                field
+                for field in h5_a["Header"]
+                if not _uvh5_field_is_equal(
+                    h5_a["Header"][field],
+                    h5_b["Header"][field]
+                )
+            ]
+            data_differences = [
+                field
+                for field in [
+                    "flags",
+                    "nsamples"
+                ]
+                if not _uvh5_field_is_equal(
+                    h5_a["Data"][field],
+                    h5_b["Data"][field]
+                )
+            ]
+            if not numpy.allclose(
+                h5_a["Data"]["visdata"],
+                h5_b["Data"]["visdata"],
+                atol=atol,
+                rtol=rtol
+            ):
+                data_differences.append("visdata")
+            
+            return header_differences, data_differences

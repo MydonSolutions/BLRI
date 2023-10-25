@@ -7,6 +7,7 @@ import yaml
 import numpy
 
 from blri.entrypoints.pycorr import main as pycorr_main
+from blri.fileformats.uvh5 import uvh5_differences
 from blri.fileformats.telinfo import TelescopeInformation, AntennaPositionFrame, AntennaDetail
 from guppi.header import GuppiRawHeader
 from guppi import GuppiRawHandler
@@ -165,11 +166,20 @@ class TestEntrypointPycorr(unittest.TestCase):
 
         pycorr_main(map(str, args))
 
-        assert filecmp.cmp(
-            filepath_output,
+        header_fields_diff, data_fields_diff = uvh5_differences(
             filepath_reference_output,
-            shallow=False
+            filepath_output,
+            atol=1e-8, rtol=1e-5
         )
+        
+        header_fields_diff = set(header_fields_diff).difference(
+            set(["history"])
+        )
+        with self.subTest("Header check"):
+            assert len(header_fields_diff) == 0, f"{list(header_fields_diff)}"
+        with self.subTest("Data check"):
+            assert len(data_fields_diff) == 0, f"{data_fields_diff}"
+
 
     def test_entrypoint(self):
         tests = [
@@ -187,11 +197,11 @@ class TestEntrypointPycorr(unittest.TestCase):
                 "integration_rate":128,
                 "numpy_dtype": "double"
             },
-            # {  # fails with negligible (?) discrepancies
-            #     "blockcount":32,
-            #     "blockshape":(3,16,128,2),
-            #     "upchannelisation_rate":256,
-            #     "integration_rate":2,
+            # {  # 7 MB file
+            #     "blockcount":16,
+            #     "blockshape":(2,2,128,2),
+            #     "upchannelisation_rate":512,
+            #     "integration_rate":4,
             #     "numpy_dtype": "double"
             # },
         ]

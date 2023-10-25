@@ -141,8 +141,8 @@ def main(arg_strs: list = None):
         telinfo.antennas = blri_telinfo.filter_and_reorder_antenna_in_telinfo(
             telinfo,
             guppi_header.antenna_names
-        )
-    assert len(telinfo.antennas) == guppi_header.nof_antennas
+        ).antennas
+    assert len(telinfo.antennas) == guppi_header.nof_antennas, f"len({telinfo.antennas}) != {guppi_header.nof_antennas}"
 
     ant_1_array, ant_2_array = uvh5.get_uvh5_ant_arrays(telinfo.antennas)
     num_bls = len(ant_1_array)
@@ -275,7 +275,7 @@ def main(arg_strs: list = None):
                 datasize_processed += file_pos - last_file_pos
                 last_file_pos = file_pos
                 progress = datasize_processed/guppi_bytes_total
-                elapsed_s = time.perf_counter_ns() - t_start
+                elapsed_s = 1e-9*(time.perf_counter_ns() - t_start)
                 blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {elapsed_s:0.3f} s, ETC: {elapsed_s*(1-progress)/progress:0.3f} s")
                 blri_logger.debug(f"Running throughput: {datasize_processed/(elapsed_s*10**6):0.3f} MB/s")
 
@@ -293,19 +293,19 @@ def main(arg_strs: list = None):
                     args.upchannelisation_rate
                 )[:, frequency_begin_fineidx:frequency_end_fineidx, :, :]
 
-                elapsed_s = time.perf_counter_ns() - t
+                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                 blri_logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
                 datablock_bytesize = datablock.size * datablock.itemsize
 
                 t = time.perf_counter_ns()
                 datablock = dsp.correlate(datablock)
-                elapsed_s = time.perf_counter_ns() - t
+                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                 blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 t = time.perf_counter_ns()
                 assert datablock.shape[2] == 1
                 integration_buffer += datablock.reshape(integration_buffer.shape)
-                elapsed_s = time.perf_counter_ns() - t
+                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                 blri_logger.debug(f"Integration {integration_count}/{args.integration_rate}: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
                 integration_count += 1
 
@@ -345,7 +345,7 @@ def main(arg_strs: list = None):
                     flags,
                     nsamples,
                 )
-                elapsed_s = time.perf_counter_ns() - t
+                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                 blri_logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                 datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
