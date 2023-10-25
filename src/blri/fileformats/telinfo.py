@@ -1,12 +1,13 @@
 import os
 import yaml
-from typing import List, Tuple, Union, Optional, Annotated
+from typing import List, Tuple, Optional
+from typing_extensions import Annotated
 from enum import Enum
 
 import numpy
 import h5py
 import tomli as tomllib  # `tomllib` as of Python 3.11 (PEP 680)
-from pydantic import BaseModel, BeforeValidator, AfterValidator, field_validator, field_serializer, model_validator
+from pydantic import BaseModel, BeforeValidator, field_serializer, model_validator
 
 
 from blri import parse, coords
