@@ -247,10 +247,13 @@ def _uvh5_field_is_equal(
         h5_a_field,
         h5_b_field,
     ):
-    if h5_a_field.shape == tuple():
-        return h5_a_field[()] == h5_b_field[()]
-    else:
-        return (h5_a_field[:] == h5_b_field[:]).all()
+    try:
+        if h5_a_field.shape == tuple():
+            return h5_a_field[()] == h5_b_field[()]
+        else:
+            return (h5_a_field[:] == h5_b_field[:]).all()
+    except ValueError:
+        return False
 
 
 def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: float=1e-5):
@@ -275,12 +278,18 @@ def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: f
                     h5_b["Data"][field]
                 )
             ]
-            if not numpy.allclose(
-                h5_a["Data"]["visdata"],
-                h5_b["Data"]["visdata"],
-                atol=atol,
-                rtol=rtol
-            ):
+            visdata_is_equal = False
+            try:
+                visdata_is_equal = numpy.allclose(
+                    h5_a["Data"]["visdata"],
+                    h5_b["Data"]["visdata"],
+                    atol=atol,
+                    rtol=rtol
+                )
+            except ValueError:
+                pass
+
+            if not visdata_is_equal:
                 data_differences.append("visdata")
             
             return header_differences, data_differences

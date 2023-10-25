@@ -39,3 +39,4 @@ zip-safe = false
 
 [project.scripts]
 blri_pycorr = "blri.entrypoints.pycorr:main"
+blri_uvh5_diff = "blri.entrypoints.uvh5:diff"
