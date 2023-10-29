@@ -223,7 +223,7 @@ def main(arg_strs: list = None):
     dut1 = guppi_header.get("DUT1", 0.0)
 
     jd_time_array = numpy.array((num_bls,), dtype='d')
-    integration_time = numpy.array((num_bls,))
+    integration_time = numpy.array((num_bls,), dtype='d')
     integration_time.fill(args.upchannelisation_rate*args.integration_rate*guppi_header.spectra_timespan)
     flags = numpy.zeros((num_bls, len(frequencies_mhz), len(polproducts)), dtype='?')
     nsamples = numpy.ones(flags.shape, dtype='d')
