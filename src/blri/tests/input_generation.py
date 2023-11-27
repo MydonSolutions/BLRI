@@ -115,8 +115,7 @@ def generate_guppi_header(
     grh.telescope = "Seeded Random"
     grh.source_name = "test_synth"
     grh.rightascension_hours = rng.random()*12
-    grh.declination_degrees = rng.random()*360 - 180
-    grh.declination_degrees = rng.random()*360 - 180
+    grh.declination_degrees = rng.random()*180 - 90
     grh.observed_frequency = 1420.0  # MHz
     grh.channel_bandwidth = 0.5  # MHz
     grh["POLS"] = "xy"
