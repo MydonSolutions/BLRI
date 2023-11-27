@@ -1,12 +1,13 @@
-from typing import List
+from typing import List, Tuple
 from dataclasses import dataclass
+from blri.fileformats.hdf5 import hdf5_fields_are_equal
 
 import numpy
 import h5py
-import erfa
 
 from blri.fileformats.telinfo import AntennaDetail
 from blri import __version__
+from blri.coords import compute_uvw_from_xyz
 
 
 POLARISATION_MAP = {
@@ -43,13 +44,13 @@ def get_polarisation_array(polarisation_strings: list):
 
 
 def get_uvw_array(
-    time_jd,
-    source_radec_radians,
-    ant_coordinates,
-    lla,
+    time_jd: float,
+    source_radec_rad: Tuple[float, float],
+    ant_coordinates: numpy.ndarray,
+    longlatalt_rad: Tuple[float, float, float],
     baseline_ant_1_indices,
     baseline_ant_2_indices,
-    dut1=0.0,
+    dut1: float = 0.0,
 ):
     """Computes UVW antenna coordinates with respect to reference position. There-after constructs baseline relative-UVWs array.
 
@@ -65,39 +66,14 @@ def get_uvw_array(
     Returns:
         The baseline UVW coordinates.
     """
-
-    aob, zob, ha_rad, dec_rad, rob, eo = erfa.atco13(
-        *source_radec_radians,
-        0, 0, 0, 0,
-        time_jd, 0,
-        dut1,
-        *lla,
-        0, 0,
-        0, 0, 0, 0
+    
+    uvws = compute_uvw_from_xyz(
+        time_jd,
+        source_radec_rad,
+        ant_coordinates,
+        longlatalt_rad,
+        dut1=dut1
     )
-
-    sin_long_minus_hangle = numpy.sin(lla[0]-ha_rad)
-    cos_long_minus_hangle = numpy.cos(lla[0]-ha_rad)
-    sin_declination = numpy.sin(dec_rad)
-    cos_declination = numpy.cos(dec_rad)
-
-    uvws = numpy.zeros(ant_coordinates.shape, dtype=numpy.float64)
-
-    for ant in range(ant_coordinates.shape[0]):
-        # RotZ(long-ha) anti-clockwise
-        x = cos_long_minus_hangle*ant_coordinates[ant, 0] - (-sin_long_minus_hangle)*ant_coordinates[ant, 1]
-        y = (-sin_long_minus_hangle)*ant_coordinates[ant, 0] + cos_long_minus_hangle*ant_coordinates[ant, 1]
-        z = ant_coordinates[ant, 2]
-
-        # RotY(declination) clockwise
-        x_ = x
-        x = cos_declination*x_ + sin_declination*z
-        z = -sin_declination*x_ + cos_declination*z
-
-        # Permute (WUV) to (UVW)
-        uvws[ant, 0] = y
-        uvws[ant, 1] = z
-        uvws[ant, 2] = x
 
     return numpy.array([ # ant_1 -> ant_2
         uvws[baseline_ant_2_indices[baseline_i], :] - uvws[baseline_ant_1_indices[baseline_i], :]
@@ -243,26 +219,13 @@ def uvh5_write_chunk(
     uvh5_datasets.data_nsamples[-num_bls:, :, :] = nsamples
 
 
-def _uvh5_field_is_equal(
-        h5_a_field,
-        h5_b_field,
-    ):
-    try:
-        if h5_a_field.shape == tuple():
-            return h5_a_field[()] == h5_b_field[()]
-        else:
-            return (h5_a_field[:] == h5_b_field[:]).all()
-    except ValueError:
-        return False
-
-
 def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: float=1e-5):
     with h5py.File(filepath_a, 'r') as h5_a:
         with h5py.File(filepath_b, 'r') as h5_b:
             header_differences = [
                 field
                 for field in h5_a["Header"]
-                if not _uvh5_field_is_equal(
+                if not hdf5_fields_are_equal(
                     h5_a["Header"][field],
                     h5_b["Header"][field]
                 )
@@ -273,7 +236,7 @@ def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: f
                     "flags",
                     "nsamples"
                 ]
-                if not _uvh5_field_is_equal(
+                if not hdf5_fields_are_equal(
                     h5_a["Data"][field],
                     h5_b["Data"][field]
                 )

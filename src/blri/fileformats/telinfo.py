@@ -71,15 +71,15 @@ class TelescopeInformation(BaseModel):
         ])
         if self.antenna_position_frame == AntennaPositionFrame.ecef:
             coords.transform_antenna_positions_ecef_to_xyz(
-                self.longitude,
-                self.latitude,
+                self.longitude_radians,
+                self.latitude_radians,
                 self.altitude,
                 antenna_positions
             )
         if self.antenna_position_frame == AntennaPositionFrame.enu:
             coords.transform_antenna_positions_enu_to_xyz(
-                self.longitude,
-                self.latitude,
+                self.longitude_radians,
+                self.latitude_radians,
                 self.altitude,
                 antenna_positions
             )
