@@ -100,6 +100,11 @@ def main(arg_strs: list = None):
         help="The numpy.dtype to load the GUPPI RAW data as (passed as an argument to `numpy.dtype()`)."
     )
     parser.add_argument(
+        "--unsorted-raw-filepaths",
+        action="store_true",
+        help="Do not sort (lexicographically) the provided GUPPI RAW filepaths."
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -126,6 +131,8 @@ def main(arg_strs: list = None):
     if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
         # argument appears to be a singular stem, break it out of the list
         args.raw_filepaths = args.raw_filepaths[0]
+    elif not args.unsorted_raw_filepaths:
+        args.raw_filepaths.sort()
     guppi_handler = GuppiRawHandler(args.raw_filepaths)
 
     if args.output_filepath is None:
