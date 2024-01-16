@@ -267,20 +267,36 @@ def main(arg_strs: list = None):
         integration_count = 0
         # Integrate fine spectra in a separate buffer
         integration_buffer = dsp.compy.zeros(flags.shape, dtype="D")
+        read_elapsed_s = 0.0
+        concat_elapsed_s = 0.0
+        t_progress = t
         while True:
+            
+            t = time.perf_counter_ns()
             datablock = numpy.concatenate(
                 (datablock, guppi_data),
                 axis=2  # concatenate in time
             )
+            concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
 
             if datablock.shape[2] >= datablock_time_requirement:
                 file_pos = guppi_handler._guppi_file_handle.tell()
                 datasize_processed += file_pos - last_file_pos
                 last_file_pos = file_pos
                 progress = datasize_processed/guppi_bytes_total
-                elapsed_s = 1e-9*(time.perf_counter_ns() - t_start)
-                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {elapsed_s:0.3f} s, ETC: {elapsed_s*(1-progress)/progress:0.3f} s")
-                blri_logger.debug(f"Running throughput: {datasize_processed/(elapsed_s*10**6):0.3f} MB/s")
+
+                t = time.perf_counter_ns()
+                progress_elapsed_s = 1e-9*(t - t_progress)
+                t_progress = t
+
+                total_elapsed_s = 1e-9*(t - t_start)
+                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
+                blri_logger.debug(f"Read time: {read_elapsed_s} s ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.debug(f"Concat time: {concat_elapsed_s} s ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.debug(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
+
+                read_elapsed_s = 0.0
+                concat_elapsed_s = 0.0
 
             while datablock.shape[2] >= datablock_time_requirement:
                 datablock_residual = datablock[:, :, datablock_time_requirement:, :]
@@ -358,7 +374,9 @@ def main(arg_strs: list = None):
 
             _guppi_file_index = guppi_handler._guppi_file_index
             try:
+                t = time.perf_counter_ns()
                 guppi_header, guppi_data = next(guppi_blocks_iter)
+                read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
             except StopIteration:
                 break
             if guppi_handler._guppi_file_index != _guppi_file_index:
