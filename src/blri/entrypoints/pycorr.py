@@ -123,6 +123,9 @@ def main(arg_strs: list = None):
     datablock_time_requirement = args.upchannelisation_rate
 
     telinfo = blri_telinfo.load_telescope_metadata(args.telescope_info_filepath)
+    if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
+        # argument appears to be a singular stem, break it out of the list
+        args.raw_filepaths = args.raw_filepaths[0]
     guppi_handler = GuppiRawHandler(args.raw_filepaths)
 
     if args.output_filepath is None:
