@@ -231,10 +231,23 @@ def main(arg_strs: list = None):
     timeperblk = guppi_data.shape[2]
     piperblk = guppi_header.nof_packet_indices_per_block
     dut1 = guppi_header.get("DUT1", 0.0)
-
+    integration_time_per_spectrum_out = args.upchannelisation_rate*args.integration_rate*guppi_header.spectra_timespan
+    blri_logger.debug(f"integration_time_per_spectrum_out: {integration_time_per_spectrum_out}")
+    
+    jd_time_running = _get_jd(
+        guppi_header.spectra_timespan,
+        ntimes,
+        piperblk,
+        guppi_header.time_unix_offset,
+        guppi_header.packet_index
+    )
+    SEC_PER_DAY = 86400
+    jd_time_running += 0.5*integration_time_per_spectrum_out/SEC_PER_DAY # jd_time_array holds average timestamp of spectrum, maintain offset
+    
     jd_time_array = numpy.array((num_bls,), dtype='d')
+    jd_time_array.fill(jd_time_running)
     integration_time = numpy.array((num_bls,), dtype='d')
-    integration_time.fill(args.upchannelisation_rate*args.integration_rate*guppi_header.spectra_timespan)
+    integration_time.fill(integration_time_per_spectrum_out)
     flags = numpy.zeros((num_bls, len(frequencies_mhz), len(polproducts)), dtype='?')
     nsamples = numpy.ones(flags.shape, dtype='d')
 
@@ -263,7 +276,6 @@ def main(arg_strs: list = None):
         datablocks_per_requirement = datablock_time_requirement/datablock_shape[2]
         blri_logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation.")
         datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
-        datablock_pktidx_start = guppi_header.packet_index
 
         datablocks_queue = [guppi_data]
         data_spectra_count = guppi_data.shape[2]
@@ -346,16 +358,6 @@ def main(arg_strs: list = None):
                     continue
 
                 t = time.perf_counter_ns()
-                jd_time_array.fill(
-                    _get_jd(
-                        guppi_header.spectra_timespan,
-                        ntimes,
-                        piperblk,
-                        guppi_header.time_unix_offset,
-                        datablock_pktidx_start + (datablock_time_requirement/2)*piperblk/timeperblk
-                    )
-                )
-
                 uvh5.uvh5_write_chunk(
                     uvh5_datasets,
                     ant_1_array,
@@ -377,11 +379,13 @@ def main(arg_strs: list = None):
                 )
                 elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                 blri_logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                blri_logger.debug(f"jd_time_running: {jd_time_running}")
 
-                datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
+                jd_time_running += integration_time_per_spectrum_out / SEC_PER_DAY
+                jd_time_array.fill(jd_time_running)
 
-                integration_count = 0
                 integration_buffer.fill(0.0)
+                integration_count = 0
 
                 datablocks_queue = [datablock]
                 data_spectra_count = datablock.shape[2]
