@@ -256,9 +256,10 @@ def main(arg_strs: list = None):
         datablocks_per_requirement = datablock_time_requirement/datablock_shape[2]
         blri_logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation.")
         datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
-
-        datablock = guppi_data[:, :, 0:0, :]
         datablock_pktidx_start = guppi_header.packet_index
+
+        datablocks_queue = [guppi_data]
+        data_spectra_count = guppi_data.shape[2]
 
         t = time.perf_counter_ns()
         t_start = t
@@ -271,15 +272,18 @@ def main(arg_strs: list = None):
         concat_elapsed_s = 0.0
         t_progress = t
         while True:
-            
-            t = time.perf_counter_ns()
-            datablock = numpy.concatenate(
-                (datablock, guppi_data),
-                axis=2  # concatenate in time
-            )
-            concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
+            if data_spectra_count >= datablock_time_requirement:
+                if len(datablocks_queue) == 1:
+                    datablock = datablocks_queue[0]
+                else: 
+                    t = time.perf_counter_ns()
+                    datablock = numpy.concatenate(
+                        datablocks_queue,
+                        axis=2  # concatenate in time
+                    )
+                    concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
+                datablocks_queue.clear()
 
-            if datablock.shape[2] >= datablock_time_requirement:
                 file_pos = guppi_handler._guppi_file_handle.tell()
                 datasize_processed += file_pos - last_file_pos
                 last_file_pos = file_pos
@@ -372,11 +376,16 @@ def main(arg_strs: list = None):
                 integration_count = 0
                 integration_buffer.fill(0.0)
 
+                datablocks_queue = [datablock]
+                data_spectra_count = datablock.shape[2]
+
             _guppi_file_index = guppi_handler._guppi_file_index
             try:
                 t = time.perf_counter_ns()
                 guppi_header, guppi_data = next(guppi_blocks_iter)
                 read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
+                data_spectra_count += guppi_data.shape[2]
+                datablocks_queue.append(guppi_data)
             except StopIteration:
                 break
             if guppi_handler._guppi_file_index != _guppi_file_index:
