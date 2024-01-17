@@ -277,8 +277,9 @@ def main(arg_strs: list = None):
         # Integrate fine spectra in a separate buffer
         integration_buffer = dsp.compy.zeros(flags.shape, dtype="D")
         read_elapsed_s = 0.0
-        transfer_elapsed_s = 0.0
         concat_elapsed_s = 0.0
+        transfer_elapsed_s = 0.0
+        reorder_elapsed_s = 0.0
         t_progress = t
         while True:
             if data_spectra_count >= datablock_time_requirement:
@@ -304,7 +305,7 @@ def main(arg_strs: list = None):
                         datablock.shape[0]*datablock.shape[3],
                         datablock.shape[4]
                     ))
-                    concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
+                    reorder_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
 
                 file_pos = guppi_handler._guppi_file_handle.tell()
                 datasize_processed += file_pos - last_file_pos
@@ -319,12 +320,14 @@ def main(arg_strs: list = None):
                 blri_logger.debug(f"Read time: {read_elapsed_s} s ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Concat time: {concat_elapsed_s} s ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Transfer time: {transfer_elapsed_s} s ({100*transfer_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.debug(f"Reorder time: {reorder_elapsed_s} s ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
                 blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
 
                 read_elapsed_s = 0.0
                 concat_elapsed_s = 0.0
                 transfer_elapsed_s = 0.0
+                reorder_elapsed_s = 0.0
 
                 while datablock.shape[2] >= datablock_time_requirement:
                     assert len(datablock.shape) == 4
@@ -415,9 +418,11 @@ def main(arg_strs: list = None):
                 if datablock.size == 0:
                     datablock = guppi_data
                 else:
+                    t = time.perf_counter_ns()
                     datablock = numpy.concatenate(
                         (datablock, guppi_data)
                     )
+                    concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
             except StopIteration:
                 break
             if guppi_handler._guppi_file_index != _guppi_file_index:
