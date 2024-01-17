@@ -371,7 +371,7 @@ def main(arg_strs: list = None):
                             ntimes,
                             piperblk,
                             guppi_header.time_unix_offset,
-                            datablock_pktidx_start + (datablock_time_requirement/2)*piperblk/timeperblk
+                            datablock_pktidx_start + (datablock_time_requirement*args.integration_rate/2)*piperblk/timeperblk
                         )
                     )
 
@@ -397,7 +397,7 @@ def main(arg_strs: list = None):
                     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                     blri_logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
-                    datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
+                    datablock_pktidx_start += datablock_time_requirement*args.integration_rate*piperblk/timeperblk
 
                     integration_count = 0
                     integration_buffer.fill(0.0)
