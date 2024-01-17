@@ -265,8 +265,9 @@ def main(arg_strs: list = None):
         datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
         datablock_pktidx_start = guppi_header.packet_index
 
-        datablocks_queue = [guppi_data]
         data_spectra_count = guppi_data.shape[2]
+        # while gathering blocks of data, `datablock` is shape (Block, A, F, T, P)
+        datablock = guppi_data.reshape([1, *guppi_data.shape])
 
         t = time.perf_counter_ns()
         t_start = t
@@ -276,20 +277,34 @@ def main(arg_strs: list = None):
         # Integrate fine spectra in a separate buffer
         integration_buffer = dsp.compy.zeros(flags.shape, dtype="D")
         read_elapsed_s = 0.0
+        transfer_elapsed_s = 0.0
         concat_elapsed_s = 0.0
         t_progress = t
         while True:
             if data_spectra_count >= datablock_time_requirement:
-                if len(datablocks_queue) == 1:
-                    datablock = datablocks_queue[0]
-                else: 
+                assert len(datablock.shape) == 5
+                # enough data to process,
+                # transfer to compute device
+                if dsp.cupy_enabled:
                     t = time.perf_counter_ns()
-                    datablock = numpy.concatenate(
-                        datablocks_queue,
-                        axis=2  # concatenate in time
-                    )
+                    datablock = dsp.compy.array(datablock)
+                    transfer_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
+
+                # move Block to before T and merge dimensions
+                if datablock.shape[0] == 1:
+                    datablock = datablock.reshape(datablock.shape[1:])
+                else:
+                    t = time.perf_counter_ns()
+                    datablock = dsp.compy.transpose(
+                        datablock,
+                        (1,2,0,3,4)
+                    ).reshape((
+                        datablock.shape[1],
+                        datablock.shape[2],
+                        datablock.shape[0]*datablock.shape[3],
+                        datablock.shape[4]
+                    ))
                     concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
-                datablocks_queue.clear()
 
                 file_pos = guppi_handler._guppi_file_handle.tell()
                 datasize_processed += file_pos - last_file_pos
@@ -301,90 +316,94 @@ def main(arg_strs: list = None):
                 t_progress = t
 
                 total_elapsed_s = 1e-9*(t - t_start)
-                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
                 blri_logger.debug(f"Read time: {read_elapsed_s} s ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Concat time: {concat_elapsed_s} s ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.debug(f"Transfer time: {transfer_elapsed_s} s ({100*transfer_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
+                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
 
                 read_elapsed_s = 0.0
                 concat_elapsed_s = 0.0
+                transfer_elapsed_s = 0.0
 
-            while datablock.shape[2] >= datablock_time_requirement:
-                datablock_residual = datablock[:, :, datablock_time_requirement:, :]
-                datablock = dsp.compy.array(
-                    datablock[:, :, 0:datablock_time_requirement, :]
-                )
+                while datablock.shape[2] >= datablock_time_requirement:
+                    assert len(datablock.shape) == 4
+                    datablock_residual = datablock[:, :, datablock_time_requirement:, :]
+                    datablock = datablock[:, :, 0:datablock_time_requirement, :]
 
-                datablock_bytesize = datablock.size * datablock.itemsize
+                    datablock_bytesize = datablock.size * datablock.itemsize
 
-                t = time.perf_counter_ns()
-                datablock = dsp.upchannelise(
-                    datablock[:, frequency_begin_coarseidx:frequency_end_coarseidx, :, :],
-                    args.upchannelisation_rate
-                )[:, frequency_begin_fineidx:frequency_end_fineidx, :, :]
+                    t = time.perf_counter_ns()
+                    datablock = dsp.upchannelise(
+                        datablock[:, frequency_begin_coarseidx:frequency_end_coarseidx, :, :],
+                        args.upchannelisation_rate
+                    )[:, frequency_begin_fineidx:frequency_end_fineidx, :, :]
 
-                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-                blri_logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-                datablock_bytesize = datablock.size * datablock.itemsize
+                    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+                    blri_logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                    datablock_bytesize = datablock.size * datablock.itemsize
 
-                t = time.perf_counter_ns()
-                datablock = dsp.correlate(datablock)
-                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-                blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                    t = time.perf_counter_ns()
+                    datablock = dsp.correlate(datablock)
+                    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+                    blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
-                t = time.perf_counter_ns()
-                assert datablock.shape[2] == 1
-                integration_buffer += datablock.reshape(integration_buffer.shape)
-                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-                blri_logger.debug(f"Integration {integration_count}/{args.integration_rate}: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-                integration_count += 1
+                    t = time.perf_counter_ns()
+                    assert datablock.shape[2] == 1
+                    integration_buffer += datablock.reshape(integration_buffer.shape)
+                    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+                    blri_logger.debug(f"Integration {integration_count}/{args.integration_rate}: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                    integration_count += 1
 
-                datablock = datablock_residual
-                del datablock_residual
+                    datablock = datablock_residual
+                    del datablock_residual
 
-                if integration_count < args.integration_rate:
-                    continue
+                    if integration_count < args.integration_rate:
+                        continue
 
-                t = time.perf_counter_ns()
-                jd_time_array.fill(
-                    _get_jd(
-                        guppi_header.spectra_timespan,
-                        ntimes,
-                        piperblk,
-                        guppi_header.time_unix_offset,
-                        datablock_pktidx_start + (datablock_time_requirement/2)*piperblk/timeperblk
+                    t = time.perf_counter_ns()
+                    jd_time_array.fill(
+                        _get_jd(
+                            guppi_header.spectra_timespan,
+                            ntimes,
+                            piperblk,
+                            guppi_header.time_unix_offset,
+                            datablock_pktidx_start + (datablock_time_requirement/2)*piperblk/timeperblk
+                        )
                     )
-                )
 
-                uvh5.uvh5_write_chunk(
-                    uvh5_datasets,
-                    ant_1_array,
-                    ant_2_array,
-                    uvh5.get_uvw_array(
-                        jd_time_array[0],
-                        phase_center_radians,
-                        ant_xyz,
-                        lla,
-                        baseline_ant_1_indices,
-                        baseline_ant_2_indices,
-                        dut1=dut1,
-                    ),
-                    jd_time_array,
-                    integration_time,
-                    integration_buffer.get() if dsp.cupy_enabled else integration_buffer,
-                    flags,
-                    nsamples,
-                )
-                elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-                blri_logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
+                    uvh5.uvh5_write_chunk(
+                        uvh5_datasets,
+                        ant_1_array,
+                        ant_2_array,
+                        uvh5.get_uvw_array(
+                            jd_time_array[0],
+                            phase_center_radians,
+                            ant_xyz,
+                            lla,
+                            baseline_ant_1_indices,
+                            baseline_ant_2_indices,
+                            dut1=dut1,
+                        ),
+                        jd_time_array,
+                        integration_time,
+                        integration_buffer.get() if dsp.cupy_enabled else integration_buffer,
+                        flags,
+                        nsamples,
+                    )
+                    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+                    blri_logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
-                datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
+                    datablock_pktidx_start += datablock_time_requirement*piperblk/timeperblk
 
-                integration_count = 0
-                integration_buffer.fill(0.0)
+                    integration_count = 0
+                    integration_buffer.fill(0.0)
 
-                datablocks_queue = [datablock]
-                data_spectra_count = datablock.shape[2]
+                    data_spectra_count = datablock.shape[2]
+                    datablock = datablock.reshape([1, *datablock.shape])
+                    if dsp.cupy_enabled:
+                        datablock = datablock.get()
+                    break
 
             _guppi_file_index = guppi_handler._guppi_file_index
             try:
@@ -392,7 +411,13 @@ def main(arg_strs: list = None):
                 guppi_header, guppi_data = next(guppi_blocks_iter)
                 read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
                 data_spectra_count += guppi_data.shape[2]
-                datablocks_queue.append(guppi_data)
+                guppi_data = guppi_data.reshape([1, *guppi_data.shape])
+                if datablock.size == 0:
+                    datablock = guppi_data
+                else:
+                    datablock = numpy.concatenate(
+                        (datablock, guppi_data)
+                    )
             except StopIteration:
                 break
             if guppi_handler._guppi_file_index != _guppi_file_index:
