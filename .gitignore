@@ -1,3 +1,4 @@
 __pycache__
 *.egg-info
 build
+src/blri/_version.py

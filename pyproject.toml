@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm", "setuptools-git-versioning"]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,12 +27,8 @@ dependencies = [
 ]
 dynamic = ["version"]
 
-[tool.setuptools-git-versioning]
-enabled = true
-version_file = "src/blri/VERSION"
-
-[tool.setuptools.package-data]
-blri = ["VERSION"]
+[tool.setuptools_scm]
+version_file = "src/blri/_version.py"
 
 [tool.setuptools]
 zip-safe = false
