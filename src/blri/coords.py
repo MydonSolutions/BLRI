@@ -32,8 +32,8 @@ def transform_antenna_positions_xyz_to_ecef(
     antenna_positions
 ):
     transformer = pyproj.Proj.from_proj(
-        pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84'),
         pyproj.Proj(proj='geocent', ellps='WGS84', datum='WGS84'),
+        pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84'),
     )
     telescopeCenterXyz = transformer.transform(
         longitude_rad*180.0/numpy.pi,  # expects degrees

@@ -26,7 +26,7 @@ def delays(
     delays_ns = numpy.zeros(
         (
             times_jd.shape[0],
-            beam_radec_rad.shape[0],
+            len(beam_radec_rad),
             antenna_positions_xyz.shape[0],
         ),
         dtype=numpy.float64
