@@ -116,6 +116,98 @@ class InputGuppiIterator:
         return self._data_bytes_processed
 
 
+class InputStampIterator:
+    class StampTimeKeeper(BaseModel):
+        spectra_timespan: float
+        time_unix_offset: float
+        running_time_unix: float
+    
+    def __init__(self, stamp_filepaths: List[str], stamp_index=0, dtype=None):
+        import seticore import stamp_capnp
+
+        self.stamp = None
+        self.stamp_filepath = stamp_filepaths[0]
+        with open(self.stamp_filepath) as f:
+            stamps = stamp_capnp.Stamp.read_multiple(f, traversal_limit_in_words=2**30)
+            for i, stamp in enumerate(stamps):
+                if i == stamp_index:
+                    self.stamp = stamp
+                    break
+        if self.stamp is None:
+            raise RuntimeError(f"Did not reach index {stamp_index} within {self.stamp_filepath}")
+
+        self.timekeeper = self.StampTimeKeeper(
+            spectra_timespan = stamp.tsamp,
+            time_unix_offset = stamp.tstart,
+            running_time_unix = 0
+        )
+
+        self._data_bytes_processed = 0
+
+        self.stamp_bytes_total = numpy.prod((
+            self.stamp.numTimesteps,
+            self.stamp.numChannels,
+            self.stamp.numPolarizations,
+            self.stamp.numAntennas,
+            2, # 2 components in complexity
+            4 # 4 bytes in Float32
+        ))
+        blri_logger.debug(f"Total Stamp Data bytes: {self.stamp_bytes_total/(10**6)} MB")
+    
+    def metadata(self, polarisation_chars=None) -> MetaData:
+        if polarisation_chars is None:
+            polarisation_chars = "ab"
+        return MetaData(
+            nof_antenna = self.stamp.numAntennas,
+            nof_channel = self.stamp.numChannels,
+            nof_time = self.stamp.numTimesteps,
+            nof_polarisation = self.stamp.numPolarizations,
+            channel_bandwidth_mhz = self.stamp.foff,
+            observed_frequency_mhz = self.stamp.fch1 + (self.stamp.numChannels/2)*self.stamp.foff,
+            polarisation_chars = polarisation_chars,
+            phase_center_rightascension_radians = self.stamp.ra*numpy.pi/12,
+            phase_center_declination_radians = self.stamp.dec*numpy.pi/180,
+            dut1_s = 0.0,
+            spectra_timespan_s = self.stamp.tsamp,
+            telescope = f"{self.stamp.telescopeId}",
+            source_name = self.stamp.sourceName,
+            antenna_names = None
+        )
+    
+    def data(self):
+        self._data_bytes_processed = 0
+        
+        data = numpy.array(self.stamp.data).reshape((
+            self.stamp.numTimesteps,
+            self.stamp.numChannels,
+            self.stamp.numPolarizations,
+            self.stamp.numAntennas,
+            2
+        )).view(numpy.complex128) # python automatically upscaled the float32
+
+        yield numpy.transpose(
+            data,
+            (3,1,0,2)
+        )
+        self._data_bytes_processed = self.stamp_bytes_total
+
+    def increment_time_taking_midpoint_unix(self, step_timesamples) -> float:
+        time_step = step_timesamples*self.spectra_timespan
+        unix_midpoint = self.time_unix_offset + self.running_time_unix + time_step/2
+        self.running_time_unix += time_step
+        return unix_midpoint
+
+    def output_filepath_default(self) -> str:
+        input_dir, input_filename = os.path.split(self.stamp_filepath)
+        return os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.uvh5")
+    
+    def data_bytes_total(self) -> int:
+        return self.stamp_bytes_total
+    
+    def data_bytes_processed(self) -> int:
+        return self._data_bytes_processed
+
+
 def main(arg_strs: list = None):
     parser = argparse.ArgumentParser(
         description="Correlate the data of a RAW file set, producing a UVH5 file.",
