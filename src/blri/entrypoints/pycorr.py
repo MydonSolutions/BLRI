@@ -1,22 +1,118 @@
 import os, argparse, logging, time
+from typing import Optional, List
 
+from pydantic import BaseModel
 import h5py
 import numpy
 from guppi import GuppiRawHandler
 
 from blri import logger as blri_logger, parse, dsp
 from blri.fileformats import telinfo as blri_telinfo, uvh5
+from blri.times import julian_date_from_unix
 
 
-def _get_jd(
-    tbin,
-    sampleperblk,
-    piperblk,
-    synctime,
-    pktidx
-):
-    unix = synctime + (pktidx * (sampleperblk/piperblk)) * tbin
-    return 2440587.5 + unix/86400
+class MetaData(BaseModel):
+    nof_antenna: int
+    nof_channel: int
+    nof_time: int
+    nof_polarisation: int
+    channel_bandwidth_mhz: float
+    observed_frequency_mhz: float
+    polarisation_chars: str
+    phase_center_rightascension_radians: float
+    phase_center_declination_radians: float
+    dut1_s: float
+    spectra_timespan_s: float
+    telescope: str
+    source_name: str
+    antenna_names: Optional[List[str]]
+
+
+class InputGuppiIterator:
+    class GuppiTimeKeeper(BaseModel):
+        nof_spectra_per_block: int
+        nof_packet_indices_per_block: int
+        sample_packet_index: int
+        spectra_timespan: float
+        time_unix_offset: float
+    
+    def __init__(self, raw_filepaths: List[str], dtype="float32"):
+        self.guppi_handler = GuppiRawHandler(raw_filepaths)
+        self.guppi_blocks_iter = self.guppi_handler.blocks(astype=numpy.dtype(dtype).type)
+        self.guppi_header, self.current_guppi_data = next(self.guppi_blocks_iter)
+        self.timekeeper = self.GuppiTimeKeeper(
+            nof_spectra_per_block = self.guppi_header.nof_spectra_per_block,
+            nof_packet_indices_per_block = self.guppi_header.nof_packet_indices_per_block,
+            sample_packet_index = self.guppi_header.packet_index,
+            spectra_timespan = self.guppi_header.spectra_timespan,
+            time_unix_offset = self.guppi_header.time_unix_offset
+        )
+
+        self._data_bytes_processed = 0
+
+        blri_logger.debug(f"GUPPI RAW files: {self.guppi_handler._guppi_filepaths}")
+        self.guppi_bytes_total = numpy.sum(list(map(os.path.getsize, self.guppi_handler._guppi_filepaths)))
+        blri_logger.debug(f"Total GUPPI RAW bytes: {self.guppi_bytes_total/(10**6)} MB")
+    
+    def metadata(self, polarisation_chars=None) -> MetaData:
+        if polarisation_chars is None:
+            polarisation_chars = "ab"
+        nants, nchan, ntimes, npol = self.guppi_header.blockshape
+        return MetaData(            
+            nof_antenna = nants,
+            nof_channel = nchan,
+            nof_time = ntimes,
+            nof_polarisation = npol,
+            channel_bandwidth_mhz = self.guppi_header.channel_bandwidth,
+            observed_frequency_mhz = self.guppi_header.observed_frequency,
+            polarisation_chars = self.guppi_header.get("POLS", polarisation_chars),
+            phase_center_rightascension_radians = parse.degrees_process(self.guppi_header.get("RA_PHAS", self.guppi_header.rightascension_string)) * numpy.pi / 12.0,
+            phase_center_declination_radians = parse.degrees_process(self.guppi_header.get("DEC_PHAS", self.guppi_header.declination_string)) * numpy.pi / 180.0,
+            dut1_s = self.guppi_header.get("DUT1", 0.0),
+            spectra_timespan_s = self.guppi_header.spectra_timespan,
+            telescope = self.guppi_header.telescope,
+            source_name = self.guppi_header.source_name,
+            antenna_names = self.guppi_header.antenna_names if hasattr(self.guppi_header, "antenna_names") else None
+        )
+    
+    def data(self):
+        self._data_bytes_processed = self.guppi_handler._guppi_file_handle.tell()
+        while self.current_guppi_data is not None:
+            yield self.current_guppi_data
+
+            prev_guppi_file_index = self.guppi_handler._guppi_file_index
+            prev_pos = self.guppi_handler._guppi_file_handle.tell()
+
+            try:
+                _, self.current_guppi_data = next(self.guppi_blocks_iter)
+            except StopIteration:
+                self.current_guppi_data = None
+                break
+
+            if self.guppi_handler._guppi_file_index != prev_guppi_file_index:
+                prev_pos = 0
+            self._data_bytes_processed += self.guppi_handler._guppi_file_handle.tell() - prev_pos
+
+    def increment_time_taking_midpoint_unix(self, step_timesamples) -> float:
+        packet_index_step = step_timesamples*self.timekeeper.nof_packet_indices_per_block/self.timekeeper.nof_spectra_per_block
+
+        unix_midpoint = self.timekeeper.time_unix_offset + (
+            (self.timekeeper.sample_packet_index + packet_index_step/2)
+            * (self.timekeeper.nof_spectra_per_block/self.timekeeper.nof_packet_indices_per_block)
+        ) * self.timekeeper.spectra_timespan
+
+        self.timekeeper.sample_packet_index += packet_index_step
+        return unix_midpoint
+
+    def output_filepath_default(self) -> str:
+        input_dir, input_filename = os.path.split(self.guppi_handler._guppi_filepaths[0])
+        return os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.uvh5")
+    
+    def data_bytes_total(self) -> int:
+        return self.guppi_bytes_total
+    
+    def data_bytes_processed(self) -> int:
+        return self._data_bytes_processed
 
 
 def main(arg_strs: list = None):
@@ -118,7 +214,6 @@ def main(arg_strs: list = None):
             logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG
         ][args.verbose]
     )
-    guppi_block_astype_dtype = numpy.dtype(args.dtype)
 
     if args.cupy:
         dsp.compute_with_cupy()
@@ -133,36 +228,32 @@ def main(arg_strs: list = None):
         args.raw_filepaths = args.raw_filepaths[0]
     elif not args.unsorted_raw_filepaths:
         args.raw_filepaths.sort()
-    guppi_handler = GuppiRawHandler(args.raw_filepaths)
+    
+    inputhandler = InputGuppiIterator(args.raw_filepaths, dtype=args.dtype)
+    inputdata_iter = inputhandler.data()
+    inputdata = next(inputdata_iter)
 
     if args.output_filepath is None:
-        input_dir, input_filename = os.path.split(guppi_handler._guppi_filepaths[0])
-        output_filepath = os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.uvh5")
+        output_filepath = inputhandler.output_filepath_default()
     else:
         output_filepath = args.output_filepath
+    
+    metadata = inputhandler.metadata(polarisation_chars=args.polarisations)
 
-    blri_logger.debug(f"GUPPI RAW files: {guppi_handler._guppi_filepaths}")
-    guppi_bytes_total = numpy.sum(list(map(os.path.getsize, guppi_handler._guppi_filepaths)))
-    blri_logger.debug(f"Total GUPPI RAW bytes: {guppi_bytes_total/(10**6)} MB")
-
-    guppi_blocks_iter = guppi_handler.blocks(astype=guppi_block_astype_dtype.type)
-    guppi_header, guppi_data = next(guppi_blocks_iter)
-    if hasattr(guppi_header, "antenna_names"):
+    if metadata.antenna_names is not None:
         telinfo.antennas = blri_telinfo.filter_and_reorder_antenna_in_telinfo(
             telinfo,
-            guppi_header.antenna_names
+            metadata.antenna_names
         ).antennas
-    assert len(telinfo.antennas) == guppi_header.nof_antennas, f"len({telinfo.antennas}) != {guppi_header.nof_antennas}"
+    assert len(telinfo.antennas) == metadata.nof_antenna, f"len({telinfo.antennas}) != {metadata.nof_antennas}"
 
     ant_1_array, ant_2_array = uvh5.get_uvh5_ant_arrays(telinfo.antennas)
     num_bls = len(ant_1_array)
 
-    nants, nchan, ntimes, npol = guppi_header.blockshape
-    coarse_chan_bw = guppi_header.channel_bandwidth
-    frequency_channel_0_mhz = guppi_header.observed_frequency - (nchan/2 + 0.5)*coarse_chan_bw
+    frequency_channel_0_mhz = metadata.observed_frequency_mhz - (metadata.nof_channel/2 + 0.5)*metadata.channel_bandwidth_mhz
 
-    upchan_bw = coarse_chan_bw/args.upchannelisation_rate
-    frequencies_mhz = frequency_channel_0_mhz + numpy.arange(nchan*args.upchannelisation_rate)*upchan_bw
+    upchan_bw = metadata.channel_bandwidth_mhz/args.upchannelisation_rate
+    frequencies_mhz = frequency_channel_0_mhz + numpy.arange(metadata.nof_channel*args.upchannelisation_rate)*upchan_bw
 
     frequency_lowest_mhz = min(frequencies_mhz[0], frequencies_mhz[-1])
     frequency_highest_mhz = max(frequencies_mhz[0], frequencies_mhz[-1])
@@ -195,7 +286,7 @@ def main(arg_strs: list = None):
     frequency_end_coarseidx = int(numpy.ceil(frequency_end_fineidx/args.upchannelisation_rate))
 
     if frequency_end_coarseidx == frequency_begin_coarseidx:
-        if frequency_end_coarseidx <= nchan:
+        if frequency_end_coarseidx <= metadata.nof_channel:
             frequency_end_coarseidx += 1
         else:
             assert frequency_begin_coarseidx >= 1
@@ -214,27 +305,22 @@ def main(arg_strs: list = None):
     blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
     frequencies_mhz += 0.5 * upchan_bw
 
-    polarisation_chars = guppi_header.get("POLS", args.polarisations)
-    assert polarisation_chars is not None
-
-    assert len(polarisation_chars) == npol
+    assert len(metadata.polarisation_chars) == metadata.nof_polarisation
     polproducts = [
         f"{pol1}{pol2}"
-        for pol1 in polarisation_chars for pol2 in polarisation_chars
+        for pol1 in metadata.polarisation_chars for pol2 in metadata.polarisation_chars
     ]
 
     phase_center_radians = (
-        parse.degrees_process(guppi_header.get("RA_PHAS", guppi_header.rightascension_string)) * numpy.pi / 12.0 ,
-        parse.degrees_process(guppi_header.get("DEC_PHAS", guppi_header.declination_string)) * numpy.pi / 180.0 ,
+        metadata.phase_center_rightascension_radians,
+        metadata.phase_center_declination_radians,
     )
 
-    timeperblk = guppi_data.shape[2]
-    piperblk = guppi_header.nof_packet_indices_per_block
-    dut1 = guppi_header.get("DUT1", 0.0)
+    dut1 = metadata.dut1_s
 
     jd_time_array = numpy.array((num_bls,), dtype='d')
     integration_time = numpy.array((num_bls,), dtype='d')
-    integration_time.fill(args.upchannelisation_rate*args.integration_rate*guppi_header.spectra_timespan)
+    integration_time.fill(args.upchannelisation_rate*args.integration_rate*metadata.spectra_timespan_s)
     flags = numpy.zeros((num_bls, len(frequencies_mhz), len(polproducts)), dtype='?')
     nsamples = numpy.ones(flags.shape, dtype='d')
 
@@ -249,8 +335,8 @@ def main(arg_strs: list = None):
         uvh5_datasets = uvh5.uvh5_initialise(
             f,
             telinfo.telescope_name,
-            guppi_header.telescope,  # instrument_name
-            guppi_header.source_name,  # source_name,
+            metadata.telescope,  # instrument_name
+            metadata.source_name,  # source_name,
             lla,
             telinfo.antennas,
             frequencies_mhz*1e6,
@@ -259,19 +345,18 @@ def main(arg_strs: list = None):
             dut1=dut1
         )
 
-        datablock_shape = list(guppi_data.shape)
+        datablock_shape = list(inputdata.shape)
         datablocks_per_requirement = datablock_time_requirement/datablock_shape[2]
         blri_logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation.")
         datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
-        datablock_pktidx_start = guppi_header.packet_index
 
-        data_spectra_count = guppi_data.shape[2]
+        data_spectra_count = inputdata.shape[2]
         # while gathering blocks of data, `datablock` is shape (Block, A, F, T, P)
-        datablock = guppi_data.reshape([1, *guppi_data.shape])
+        datablock = inputdata.reshape([1, *inputdata.shape])
 
         t = time.perf_counter_ns()
         t_start = t
-        last_file_pos = 0
+        last_data_pos = 0
         datasize_processed = 0
         integration_count = 0
         # Integrate fine spectra in a separate buffer
@@ -307,10 +392,10 @@ def main(arg_strs: list = None):
                     ))
                     reorder_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
 
-                file_pos = guppi_handler._guppi_file_handle.tell()
-                datasize_processed += file_pos - last_file_pos
-                last_file_pos = file_pos
-                progress = datasize_processed/guppi_bytes_total
+                data_pos = inputhandler.data_bytes_processed()
+                datasize_processed += data_pos - last_data_pos
+                last_data_pos = data_pos
+                progress = datasize_processed/inputhandler.data_bytes_total()
 
                 t = time.perf_counter_ns()
                 progress_elapsed_s = 1e-9*(t - t_progress)
@@ -322,7 +407,7 @@ def main(arg_strs: list = None):
                 blri_logger.debug(f"Transfer time: {transfer_elapsed_s} s ({100*transfer_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Reorder time: {reorder_elapsed_s} s ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.debug(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
-                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{guppi_bytes_total/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
+                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{inputhandler.data_bytes_total()/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
 
                 read_elapsed_s = 0.0
                 concat_elapsed_s = 0.0
@@ -366,12 +451,8 @@ def main(arg_strs: list = None):
 
                     t = time.perf_counter_ns()
                     jd_time_array.fill(
-                        _get_jd(
-                            guppi_header.spectra_timespan,
-                            ntimes,
-                            piperblk,
-                            guppi_header.time_unix_offset,
-                            datablock_pktidx_start + (datablock_time_requirement*args.integration_rate/2)*piperblk/timeperblk
+                        julian_date_from_unix(
+                            inputhandler.increment_time_taking_midpoint_unix(datablock_time_requirement*args.integration_rate)
                         )
                     )
 
@@ -397,8 +478,6 @@ def main(arg_strs: list = None):
                     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                     blri_logger.debug(f"Write: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
-                    datablock_pktidx_start += datablock_time_requirement*args.integration_rate*piperblk/timeperblk
-
                     integration_count = 0
                     integration_buffer.fill(0.0)
 
@@ -408,24 +487,21 @@ def main(arg_strs: list = None):
                         datablock = datablock.get()
                     break
 
-            _guppi_file_index = guppi_handler._guppi_file_index
             try:
                 t = time.perf_counter_ns()
-                guppi_header, guppi_data = next(guppi_blocks_iter)
+                inputdata = next(inputdata_iter)
                 read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
-                data_spectra_count += guppi_data.shape[2]
-                guppi_data = guppi_data.reshape([1, *guppi_data.shape])
+                data_spectra_count += inputdata.shape[2]
+                inputdata = inputdata.reshape([1, *inputdata.shape])
                 if datablock.size == 0:
-                    datablock = guppi_data
+                    datablock = inputdata
                 else:
                     t = time.perf_counter_ns()
                     datablock = numpy.concatenate(
-                        (datablock, guppi_data)
+                        (datablock, inputdata)
                     )
                     concat_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
             except StopIteration:
                 break
-            if guppi_handler._guppi_file_index != _guppi_file_index:
-                last_file_pos = 0
 
     return output_filepath
