@@ -131,7 +131,7 @@ class InputStampIterator:
         running_time_unix: float
     
     def __init__(self, stamp_filepaths: List[str], stamp_index=0):
-        import seticore import stamp_capnp
+        from seticore import stamp_capnp
 
         self.stamp = None
         self.stamp_filepath = stamp_filepaths[0]
