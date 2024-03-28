@@ -184,14 +184,19 @@ class InputStampIterator:
     
     def data(self):
         self._data_bytes_processed = 0
-        
-        data = numpy.array(self.stamp.data).reshape((
+        data_shape = (
             self.stamp.numTimesteps,
             self.stamp.numChannels,
             self.stamp.numPolarizations,
             self.stamp.numAntennas,
-            2
-        )).view(numpy.complex128) # python automatically upscaled the float32
+        )
+        data = numpy.array(
+            self.stamp.data
+        ).view(
+            numpy.complex128 # python automatically upscaled the float32
+        ).reshape(
+            data_shape
+        )
 
         yield numpy.transpose(
             data,
