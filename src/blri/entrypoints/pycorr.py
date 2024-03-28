@@ -56,7 +56,8 @@ class InputGuppiIterator:
     
     def metadata(self, polarisation_chars=None) -> MetaData:
         if polarisation_chars is None:
-            polarisation_chars = "ab"
+            polarisation_chars = self.guppi_header.get("POLS")
+        assert polarisation_chars is not None
         nants, nchan, ntimes, npol = self.guppi_header.blockshape
         return MetaData(            
             nof_antenna = nants,
@@ -65,7 +66,7 @@ class InputGuppiIterator:
             nof_polarisation = npol,
             channel_bandwidth_mhz = self.guppi_header.channel_bandwidth,
             observed_frequency_mhz = self.guppi_header.observed_frequency,
-            polarisation_chars = self.guppi_header.get("POLS", polarisation_chars),
+            polarisation_chars = polarisation_chars,
             phase_center_rightascension_radians = parse.degrees_process(self.guppi_header.get("RA_PHAS", self.guppi_header.rightascension_string)) * numpy.pi / 12.0,
             phase_center_declination_radians = parse.degrees_process(self.guppi_header.get("DEC_PHAS", self.guppi_header.declination_string)) * numpy.pi / 180.0,
             dut1_s = self.guppi_header.get("DUT1", 0.0),
