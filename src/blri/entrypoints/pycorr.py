@@ -204,9 +204,9 @@ class InputStampIterator:
         self._data_bytes_processed = self.stamp_bytes_total
 
     def increment_time_taking_midpoint_unix(self, step_timesamples) -> float:
-        time_step = step_timesamples*self.spectra_timespan_s
-        unix_midpoint = self.time_unix_offset + self.running_time_unix + time_step/2
-        self.running_time_unix += time_step
+        time_step = step_timesamples*self.timekeeper.spectra_timespan_s
+        unix_midpoint = self.timekeeper.time_unix_offset + self.timekeeper.running_time_unix + time_step/2
+        self.timekeeper.running_time_unix += time_step
         return unix_midpoint
 
     def output_filepath_default(self) -> str:
