@@ -245,7 +245,7 @@ def main(arg_strs: list = None):
             telinfo,
             metadata.antenna_names
         ).antennas
-    assert len(telinfo.antennas) == metadata.nof_antenna, f"len({telinfo.antennas}) != {metadata.nof_antennas}"
+    assert len(telinfo.antennas) == metadata.nof_antenna, f"len({telinfo.antennas}) != {metadata.nof_antenna}"
 
     ant_1_array, ant_2_array = uvh5.get_uvh5_ant_arrays(telinfo.antennas)
     num_bls = len(ant_1_array)
