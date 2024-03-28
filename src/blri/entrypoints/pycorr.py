@@ -56,7 +56,7 @@ class InputGuppiIterator:
             time_unix_offset = self.guppi_header.time_unix_offset
         )
 
-        self._data_bytes_processed = 0
+        self._data_bytes_processed = 1
 
         blri_logger.debug(f"GUPPI RAW files: {self.guppi_handler._guppi_filepaths}")
         self.guppi_bytes_total = numpy.sum(list(map(os.path.getsize, self.guppi_handler._guppi_filepaths)))
@@ -182,7 +182,6 @@ class InputStampIterator:
         )
     
     def data(self):
-        self._data_bytes_processed = 0
         data_shape = (
             self.stamp.numTimesteps,
             self.stamp.numChannels,
@@ -197,11 +196,11 @@ class InputStampIterator:
             data_shape
         )
 
+        self._data_bytes_processed = self.stamp_bytes_total
         yield numpy.transpose(
             data,
             (3,1,0,2)
         )
-        self._data_bytes_processed = self.stamp_bytes_total
 
     def increment_time_taking_midpoint_unix(self, step_timesamples) -> float:
         time_step = step_timesamples*self.timekeeper.spectra_timespan_s
