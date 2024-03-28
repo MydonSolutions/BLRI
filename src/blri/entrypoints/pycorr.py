@@ -28,6 +28,8 @@ class MetaData(BaseModel):
     antenna_names: Optional[List[str]]
 
 
+# TODO InputIterators provide datablock_time_requirement always
+    
 class InputGuppiIterator:
     class GuppiTimeKeeper(BaseModel):
         nof_spectra_per_block: int
@@ -36,7 +38,13 @@ class InputGuppiIterator:
         spectra_timespan: float
         time_unix_offset: float
     
-    def __init__(self, raw_filepaths: List[str], dtype="float32"):
+    def __init__(self, raw_filepaths: List[str], dtype="float32", unsorted_raw_filepaths=False):
+        if len(raw_filepaths) == 1 and not os.path.exists(raw_filepaths[0]):
+            # argument appears to be a singular stem, break it out of the list
+            raw_filepaths = raw_filepaths[0]
+        elif not unsorted_raw_filepaths:
+            raw_filepaths.sort()
+
         self.guppi_handler = GuppiRawHandler(raw_filepaths)
         self.guppi_blocks_iter = self.guppi_handler.blocks(astype=numpy.dtype(dtype).type)
         self.guppi_header, self.current_guppi_data = next(self.guppi_blocks_iter)
@@ -122,7 +130,7 @@ class InputStampIterator:
         time_unix_offset: float
         running_time_unix: float
     
-    def __init__(self, stamp_filepaths: List[str], stamp_index=0, dtype=None):
+    def __init__(self, stamp_filepaths: List[str], stamp_index=0):
         import seticore import stamp_capnp
 
         self.stamp = None
@@ -214,10 +222,10 @@ def main(arg_strs: list = None):
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "raw_filepaths",
+        "input_filepaths",
         type=str,
         nargs="+",
-        help="The path to the GUPPI RAW file stem or of all files.",
+        help="The path to the input files: GUPPI RAW file stem or all filepaths; Seticore Stamps filepath.",
     )
     parser.add_argument(
         "-t",
@@ -299,6 +307,12 @@ def main(arg_strs: list = None):
         help="Instead of baseline UVWs being `ant2-ant1`, set `ant1-ant2`."
     )
     parser.add_argument(
+        "--stamp-index",
+        type=int,
+        default=0,
+        help="The selective index of a stamp within a '.stamps' file. Only applicable when `input_filepaths` is a Seticore Stamps filepath"
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -322,15 +336,20 @@ def main(arg_strs: list = None):
     blri_logger.debug(f"Datablock time requirement per processing step: {datablock_time_requirement}")
 
     telinfo = blri_telinfo.load_telescope_metadata(args.telescope_info_filepath)
-    if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
-        # argument appears to be a singular stem, break it out of the list
-        args.raw_filepaths = args.raw_filepaths[0]
-    elif not args.unsorted_raw_filepaths:
-        args.raw_filepaths.sort()
     
-    inputhandler = InputGuppiIterator(args.raw_filepaths, dtype=args.dtype)
+    if os.path.splitext(args.input_filepaths[0])[1] == ".stamps":
+        inputhandler = InputStampIterator(
+            args.input_filepaths,
+            stamp_index=args.stamp_index
+        )
+    else:
+        inputhandler = InputGuppiIterator(
+            args.input_filepaths,
+            dtype=args.dtype,
+            unsorted_raw_filepaths=args.unsorted_raw_filepaths
+        )
     inputdata_iter = inputhandler.data()
-    inputdata = next(inputdata_iter)
+    inputdata = next(inputdata_iter) # premature check to ensure data can be accessed
 
     if args.output_filepath is None:
         output_filepath = inputhandler.output_filepath_default()
