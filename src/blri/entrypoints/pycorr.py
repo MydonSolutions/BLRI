@@ -222,6 +222,7 @@ def main(arg_strs: list = None):
         dsp.compute_with_numpy()
 
     datablock_time_requirement = args.upchannelisation_rate
+    blri_logger.debug(f"Datablock time requirement per processing step: {datablock_time_requirement}")
 
     telinfo = blri_telinfo.load_telescope_metadata(args.telescope_info_filepath)
     if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
@@ -256,9 +257,14 @@ def main(arg_strs: list = None):
     upchan_bw = metadata.channel_bandwidth_mhz/args.upchannelisation_rate
     # offset to center of channels is deferred
     frequencies_mhz = observed_frequency_bottom_mhz + numpy.arange(metadata.nof_channel*args.upchannelisation_rate)*upchan_bw
+    if upchan_bw < 0:
+        frequencies_mhz = numpy.flip(frequencies_mhz)
+    
+    # should also assert monotonic
+    assert frequencies_mhz[0] < frequencies_mhz[-1], f"{frequencies_mhz}"
 
-    frequency_lowest_mhz = min(frequencies_mhz[0], frequencies_mhz[-1])
-    frequency_highest_mhz = max(frequencies_mhz[0], frequencies_mhz[-1])
+    frequency_lowest_mhz = frequencies_mhz[0]
+    frequency_highest_mhz = frequencies_mhz[-1]
 
     if args.frequency_selection_percentage is not None:
       frequencies_mhz_range = frequency_highest_mhz-frequency_lowest_mhz
@@ -270,14 +276,14 @@ def main(arg_strs: list = None):
     if args.frequency_mhz_begin is None:
         args.frequency_mhz_begin = frequency_lowest_mhz
     elif args.frequency_mhz_begin < frequency_lowest_mhz:
-        raise ValueError(f"Specified begin frequency is out of bounds: {frequency_lowest_mhz} Hz")
+        raise ValueError(f"Specified begin frequency is out of bounds: < {frequency_lowest_mhz} Hz")
 
     if args.frequency_mhz_end is None:
         args.frequency_mhz_end = frequency_highest_mhz
     elif args.frequency_mhz_end > frequency_highest_mhz:
-        raise ValueError(f"Specified end frequency is out of bounds: {frequency_highest_mhz} Hz")
+        raise ValueError(f"Specified end frequency is out of bounds: > {frequency_highest_mhz} Hz")
 
-    frequency_begin_fineidx = len(list(filter(lambda x: x<-upchan_bw, frequencies_mhz-args.frequency_mhz_begin)))
+    frequency_begin_fineidx = len(list(filter(lambda x: x<-abs(upchan_bw), frequencies_mhz-args.frequency_mhz_begin)))
     frequency_end_fineidx = len(list(filter(lambda x: x<=0, frequencies_mhz-args.frequency_mhz_end)))
     assert frequency_begin_fineidx != frequency_end_fineidx, f"{frequency_begin_fineidx} == {frequency_end_fineidx}"
 
@@ -306,6 +312,11 @@ def main(arg_strs: list = None):
     blri_logger.info(f"Fine-frequency relative channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
     blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
     # offset to center of channels
+    if upchan_bw < 0:
+        frequencies_mhz = numpy.flip(frequencies_mhz)
+        freq_count = len(frequencies_mhz)
+        frequency_begin_coarseidx, frequency_end_coarseidx = frequency_end_coarseidx-freq_count, freq_count-frequency_begin_coarseidx
+        frequency_begin_fineidx, frequency_end_fineidx = frequency_end_fineidx-freq_count, freq_count-frequency_begin_fineidx
     frequencies_mhz += 0.5 * upchan_bw
 
     assert len(metadata.polarisation_chars) == metadata.nof_polarisation
@@ -417,6 +428,7 @@ def main(arg_strs: list = None):
                 transfer_elapsed_s = 0.0
                 reorder_elapsed_s = 0.0
 
+                blri_logger.debug(f"Process steps in provided datablock: {datablock.shape[2]}/{datablock_time_requirement} = {datablock.shape[2]/datablock_time_requirement}")
                 while datablock.shape[2] >= datablock_time_requirement:
                     assert len(datablock.shape) == 4
                     datablock_residual = datablock[:, :, datablock_time_requirement:, :]
@@ -484,11 +496,11 @@ def main(arg_strs: list = None):
                     integration_count = 0
                     integration_buffer.fill(0.0)
 
-                    data_spectra_count = datablock.shape[2]
-                    datablock = datablock.reshape([1, *datablock.shape])
-                    if dsp.cupy_enabled:
-                        datablock = datablock.get()
-                    break
+                # after all process steps
+                if dsp.cupy_enabled:
+                    datablock = datablock.get()
+                data_spectra_count = datablock.shape[2]
+                datablock = datablock.reshape([1, *datablock.shape])
 
             try:
                 t = time.perf_counter_ns()
