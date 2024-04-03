@@ -52,7 +52,7 @@ class InputGuppiIterator:
             nof_spectra_per_block = self.guppi_header.nof_spectra_per_block,
             nof_packet_indices_per_block = self.guppi_header.nof_packet_indices_per_block,
             sample_packet_index = self.guppi_header.packet_index,
-            spectra_timespan_s = self.guppi_header.spectra_timespan_s,
+            spectra_timespan_s = self.guppi_header.spectra_timespan,
             time_unix_offset = self.guppi_header.time_unix_offset
         )
 
@@ -78,7 +78,7 @@ class InputGuppiIterator:
             phase_center_rightascension_radians = parse.degrees_process(self.guppi_header.get("RA_PHAS", self.guppi_header.rightascension_string)) * numpy.pi / 12.0,
             phase_center_declination_radians = parse.degrees_process(self.guppi_header.get("DEC_PHAS", self.guppi_header.declination_string)) * numpy.pi / 180.0,
             dut1_s = self.guppi_header.get("DUT1", 0.0),
-            spectra_timespan_s = self.guppi_header.spectra_timespan_s,
+            spectra_timespan_s = self.guppi_header.spectra_timespan,
             telescope = self.guppi_header.telescope,
             source_name = self.guppi_header.source_name,
             antenna_names = self.guppi_header.antenna_names if hasattr(self.guppi_header, "antenna_names") else None
