@@ -58,6 +58,7 @@ class InputGuppiIterator:
 
         self._data_bytes_processed = 1
 
+        blri_logger.debug(f"GUPPI Block shape (A, F, T, P): {self.guppi_header.blockshape}")
         blri_logger.debug(f"GUPPI RAW files: {self.guppi_handler._guppi_filepaths}")
         self.guppi_bytes_total = numpy.sum(list(map(os.path.getsize, self.guppi_handler._guppi_filepaths)))
         blri_logger.debug(f"Total GUPPI RAW bytes: {self.guppi_bytes_total/(10**6)} MB")
@@ -151,6 +152,12 @@ class InputStampIterator:
         )
 
         self._data_bytes_processed = 0
+        blri_logger.debug(f"""Stamp data shape (T, F, P, A): {(
+            self.stamp.numTimesteps,
+            self.stamp.numChannels,
+            self.stamp.numPolarizations,
+            self.stamp.numAntennas,
+        )}""")
 
         self.stamp_bytes_total = numpy.prod((
             self.stamp.numTimesteps,
@@ -170,7 +177,7 @@ class InputStampIterator:
             nof_time = self.stamp.numTimesteps,
             nof_polarisation = self.stamp.numPolarizations,
             channel_bandwidth_mhz = self.stamp.foff,
-            observed_frequency_mhz = self.stamp.fch1 + (self.stamp.numChannels/2)*self.stamp.foff,
+            observed_frequency_mhz = self.stamp.fch1 + ((self.stamp.numChannels-1)/2)*self.stamp.foff,
             polarisation_chars = polarisation_chars,
             phase_center_rightascension_radians = self.stamp.ra*numpy.pi/12,
             phase_center_declination_radians = self.stamp.dec*numpy.pi/180,
