@@ -251,10 +251,11 @@ def main(arg_strs: list = None):
     ant_1_array, ant_2_array = uvh5.get_uvh5_ant_arrays(telinfo.antennas)
     num_bls = len(ant_1_array)
 
-    frequency_channel_0_mhz = metadata.observed_frequency_mhz - (metadata.nof_channel/2 + 0.5)*metadata.channel_bandwidth_mhz
+    observed_frequency_bottom_mhz = metadata.observed_frequency_mhz - (metadata.nof_channel/2)*metadata.channel_bandwidth_mhz
 
     upchan_bw = metadata.channel_bandwidth_mhz/args.upchannelisation_rate
-    frequencies_mhz = frequency_channel_0_mhz + numpy.arange(metadata.nof_channel*args.upchannelisation_rate)*upchan_bw
+    # offset to center of channels is deferred
+    frequencies_mhz = observed_frequency_bottom_mhz + numpy.arange(metadata.nof_channel*args.upchannelisation_rate)*upchan_bw
 
     frequency_lowest_mhz = min(frequencies_mhz[0], frequencies_mhz[-1])
     frequency_highest_mhz = max(frequencies_mhz[0], frequencies_mhz[-1])
@@ -304,6 +305,7 @@ def main(arg_strs: list = None):
 
     blri_logger.info(f"Fine-frequency relative channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
     blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
+    # offset to center of channels
     frequencies_mhz += 0.5 * upchan_bw
 
     assert len(metadata.polarisation_chars) == metadata.nof_polarisation
