@@ -202,6 +202,11 @@ def main(arg_strs: list = None):
         help="Do not sort (lexicographically) the provided GUPPI RAW filepaths."
     )
     parser.add_argument(
+        "--invert-uvw-baselines",
+        action="store_true",
+        help="Instead of baseline UVWs being `ant2-ant1`, set `ant1-ant2`."
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -483,6 +488,7 @@ def main(arg_strs: list = None):
                             baseline_ant_1_indices,
                             baseline_ant_2_indices,
                             dut1=dut1,
+                            baseline_1_to_2=not args.invert_uvw_baselines
                         ),
                         jd_time_array,
                         integration_time,

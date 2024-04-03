@@ -51,6 +51,7 @@ def get_uvw_array(
     baseline_ant_1_indices,
     baseline_ant_2_indices,
     dut1: float = 0.0,
+    baseline_1_to_2: bool = True
 ):
     """Computes UVW antenna coordinates with respect to reference position. There-after constructs baseline relative-UVWs array.
 
@@ -75,10 +76,13 @@ def get_uvw_array(
         dut1=dut1
     )
 
-    return numpy.array([ # ant_1 -> ant_2
+    relative_uvws = numpy.array([ # ant_1 -> ant_2
         uvws[baseline_ant_2_indices[baseline_i], :] - uvws[baseline_ant_1_indices[baseline_i], :]
         for baseline_i in range(len(baseline_ant_1_indices))
     ])
+    if not baseline_1_to_2:
+        relative_uvws = -1*relative_uvws
+    return relative_uvws
 
 
 @dataclass
