@@ -314,7 +314,12 @@ def main(arg_strs: list = None):
     parser.add_argument(
         "--invert-uvw-baselines",
         action="store_true",
-        help="Instead of baseline UVWs being `ant2-ant1`, set `ant1-ant2`."
+        help="Instead of baseline UVWs being ant1->ant2 (`ant2 subtract ant1`), set ant2->ant1 (`ant1 subtract ant2`)."
+    )
+    parser.add_argument(
+        "--invert-correlation-conjugation",
+        action="store_true",
+        help="Instead of conjugating ant2, conjugate ant1 for correlation (effectively conjugating conventional correlation data)."
     )
     parser.add_argument(
         "--stamp-index",
@@ -563,7 +568,7 @@ def main(arg_strs: list = None):
                     datablock_bytesize = datablock.size * datablock.itemsize
 
                     t = time.perf_counter_ns()
-                    datablock = dsp.correlate(datablock)
+                    datablock = dsp.correlate(datablock, conjugation_convention_flip=args.invert_correlation_conjugation)
                     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                     blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
