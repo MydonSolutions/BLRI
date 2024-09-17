@@ -148,6 +148,7 @@ def _correlate_antenna_data(
 
 def correlate(
     datablock: compy.ndarray,  # [Antenna, Frequency, Time, Polarization]
+    conjugation_convention_flip: bool = False
 ):
     """
     Produces the correlations with typical polarisation permutation,
@@ -156,6 +157,12 @@ def correlate(
     Args:
         datablock (compy.ndarray):
             in order [Antenna, Frequency, Time, Polarization]
+        conjugation_convention_flip (bool):
+            the convention is conjugate the second factor for correlation,
+            in line with the ant1->ant2 convention, but this switches
+            conjugation to the first factor instead, equivalent to 
+            conjugating the conventional correlation and causing a flip
+            in the sky-image
 
     Returns:
         compy.ndarray:
@@ -198,12 +205,22 @@ def correlate(
         correlation_index += 1
 
     # cross correlations
-    for a1 in range(A):
-        for a2 in range(a1+1, A):
-            corr[correlation_index, :, :, :] = _correlate_antenna_data(
-                datablock[a1, :, :, :],
-                datablock_conj[a2, :, :, :]
-            )
-            correlation_index += 1
+    if not conjugation_convention_flip:
+        for a1 in range(A):
+            for a2 in range(a1+1, A):
+                corr[correlation_index, :, :, :] = _correlate_antenna_data(
+                    datablock[a1, :, :, :],
+                    datablock_conj[a2, :, :, :]
+                )
+                correlation_index += 1
+    else:
+        for a1 in range(A):
+            for a2 in range(a1+1, A):
+                corr[correlation_index, :, :, :] = _correlate_antenna_data(
+                    datablock_conj[a1, :, :, :],
+                    datablock[a2, :, :, :]
+                )
+                correlation_index += 1
+
 
     return corr

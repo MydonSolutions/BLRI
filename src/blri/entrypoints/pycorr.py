@@ -28,15 +28,23 @@ class MetaData(BaseModel):
     antenna_names: Optional[List[str]]
 
 
+# TODO InputIterators provide datablock_time_requirement always
+    
 class InputGuppiIterator:
     class GuppiTimeKeeper(BaseModel):
         nof_spectra_per_block: int
         nof_packet_indices_per_block: int
         sample_packet_index: int
-        spectra_timespan: float
+        spectra_timespan_s: float
         time_unix_offset: float
     
-    def __init__(self, raw_filepaths: List[str], dtype="float32"):
+    def __init__(self, raw_filepaths: List[str], dtype="float32", unsorted_raw_filepaths=False):
+        if len(raw_filepaths) == 1 and not os.path.exists(raw_filepaths[0]):
+            # argument appears to be a singular stem, break it out of the list
+            raw_filepaths = raw_filepaths[0]
+        elif not unsorted_raw_filepaths:
+            raw_filepaths.sort()
+
         self.guppi_handler = GuppiRawHandler(raw_filepaths)
         self.guppi_blocks_iter = self.guppi_handler.blocks(astype=numpy.dtype(dtype).type)
         self.guppi_header, self.current_guppi_data = next(self.guppi_blocks_iter)
@@ -44,12 +52,13 @@ class InputGuppiIterator:
             nof_spectra_per_block = self.guppi_header.nof_spectra_per_block,
             nof_packet_indices_per_block = self.guppi_header.nof_packet_indices_per_block,
             sample_packet_index = self.guppi_header.packet_index,
-            spectra_timespan = self.guppi_header.spectra_timespan,
+            spectra_timespan_s = self.guppi_header.spectra_timespan,
             time_unix_offset = self.guppi_header.time_unix_offset
         )
 
-        self._data_bytes_processed = 0
+        self._data_bytes_processed = 1
 
+        blri_logger.debug(f"GUPPI Block shape (A, F, T, P): {self.guppi_header.blockshape}")
         blri_logger.debug(f"GUPPI RAW files: {self.guppi_handler._guppi_filepaths}")
         self.guppi_bytes_total = numpy.sum(list(map(os.path.getsize, self.guppi_handler._guppi_filepaths)))
         blri_logger.debug(f"Total GUPPI RAW bytes: {self.guppi_bytes_total/(10**6)} MB")
@@ -100,7 +109,7 @@ class InputGuppiIterator:
         unix_midpoint = self.timekeeper.time_unix_offset + (
             (self.timekeeper.sample_packet_index + packet_index_step/2)
             * (self.timekeeper.nof_spectra_per_block/self.timekeeper.nof_packet_indices_per_block)
-        ) * self.timekeeper.spectra_timespan
+        ) * self.timekeeper.spectra_timespan_s
 
         self.timekeeper.sample_packet_index += packet_index_step
         return unix_midpoint
@@ -116,16 +125,117 @@ class InputGuppiIterator:
         return self._data_bytes_processed
 
 
+class InputStampIterator:
+    class StampTimeKeeper(BaseModel):
+        spectra_timespan_s: float
+        time_unix_offset: float
+        running_time_unix: float
+    
+    def __init__(self, stamp_filepaths: List[str], stamp_index=0):
+        from seticore import stamp_capnp
+
+        self.stamp = None
+        self.stamp_filepath = stamp_filepaths[0]
+        with open(self.stamp_filepath) as f:
+            stamps = stamp_capnp.Stamp.read_multiple(f, traversal_limit_in_words=2**30)
+            for i, stamp in enumerate(stamps):
+                if i == stamp_index:
+                    self.stamp = stamp
+                    break
+        if self.stamp is None:
+            raise RuntimeError(f"Did not reach index {stamp_index} within {self.stamp_filepath}")
+
+        self.timekeeper = self.StampTimeKeeper(
+            spectra_timespan_s = stamp.tsamp,
+            time_unix_offset = stamp.tstart,
+            running_time_unix = 0
+        )
+
+        self._data_bytes_processed = 0
+        blri_logger.debug(f"""Stamp data shape (T, F, P, A): {(
+            self.stamp.numTimesteps,
+            self.stamp.numChannels,
+            self.stamp.numPolarizations,
+            self.stamp.numAntennas,
+        )}""")
+
+        self.stamp_bytes_total = numpy.prod((
+            self.stamp.numTimesteps,
+            self.stamp.numChannels,
+            self.stamp.numPolarizations,
+            self.stamp.numAntennas,
+            2, # 2 components in complexity
+            4 # 4 bytes in Float32
+        ))
+        blri_logger.debug(f"Total Stamp Data bytes: {self.stamp_bytes_total/(10**6)} MB")
+    
+    def metadata(self, polarisation_chars=None) -> MetaData:
+        assert polarisation_chars is not None
+        return MetaData(
+            nof_antenna = self.stamp.numAntennas,
+            nof_channel = self.stamp.numChannels,
+            nof_time = self.stamp.numTimesteps,
+            nof_polarisation = self.stamp.numPolarizations,
+            channel_bandwidth_mhz = self.stamp.foff,
+            observed_frequency_mhz = self.stamp.fch1 + (self.stamp.numChannels/2)*self.stamp.foff,
+            polarisation_chars = polarisation_chars,
+            phase_center_rightascension_radians = self.stamp.ra*numpy.pi/12,
+            phase_center_declination_radians = self.stamp.dec*numpy.pi/180,
+            dut1_s = 0.0,
+            spectra_timespan_s = self.stamp.tsamp,
+            telescope = f"{self.stamp.telescopeId}",
+            source_name = self.stamp.sourceName,
+            antenna_names = None
+        )
+    
+    def data(self):
+        data_shape = (
+            self.stamp.numTimesteps,
+            self.stamp.numChannels,
+            self.stamp.numPolarizations,
+            self.stamp.numAntennas,
+        )
+        data = numpy.array(
+            self.stamp.data
+        ).view(
+            numpy.complex128 # python automatically upscaled the float32
+        ).reshape(
+            data_shape
+        )
+
+        self._data_bytes_processed = self.stamp_bytes_total
+        yield numpy.transpose(
+            data,
+            (3,1,0,2)
+        )
+
+    def increment_time_taking_midpoint_unix(self, step_timesamples) -> float:
+        time_step = step_timesamples*self.timekeeper.spectra_timespan_s
+        unix_midpoint = self.timekeeper.time_unix_offset + self.timekeeper.running_time_unix + time_step/2
+        self.timekeeper.running_time_unix += time_step
+        return unix_midpoint
+
+    def output_filepath_default(self) -> str:
+        input_dir, input_filename = os.path.split(self.stamp_filepath)
+        return os.path.join(input_dir, f"{os.path.splitext(input_filename)[0]}.uvh5")
+    
+    def data_bytes_total(self) -> int:
+        return self.stamp_bytes_total
+    
+    def data_bytes_processed(self) -> int:
+        return self._data_bytes_processed
+
+
 def main(arg_strs: list = None):
     parser = argparse.ArgumentParser(
         description="Correlate the data of a RAW file set, producing a UVH5 file.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "raw_filepaths",
+        "input_filepaths",
         type=str,
         nargs="+",
-        help="The path to the GUPPI RAW file stem or of all files.",
+        help="The path to the input files: GUPPI RAW file stem or all filepaths; Seticore Stamps filepath.",
     )
     parser.add_argument(
         "-t",
@@ -204,7 +314,18 @@ def main(arg_strs: list = None):
     parser.add_argument(
         "--invert-uvw-baselines",
         action="store_true",
-        help="Instead of baseline UVWs being `ant2-ant1`, set `ant1-ant2`."
+        help="Instead of baseline UVWs being ant1->ant2 (`ant2 subtract ant1`), set ant2->ant1 (`ant1 subtract ant2`)."
+    )
+    parser.add_argument(
+        "--invert-correlation-conjugation",
+        action="store_true",
+        help="Instead of conjugating ant2, conjugate ant1 for correlation (effectively conjugating conventional correlation data)."
+    )
+    parser.add_argument(
+        "--stamp-index",
+        type=int,
+        default=0,
+        help="The selective index of a stamp within a '.stamps' file. Only applicable when `input_filepaths` is a Seticore Stamps filepath"
     )
     parser.add_argument(
         "-v",
@@ -230,15 +351,20 @@ def main(arg_strs: list = None):
     blri_logger.debug(f"Datablock time requirement per processing step: {datablock_time_requirement}")
 
     telinfo = blri_telinfo.load_telescope_metadata(args.telescope_info_filepath)
-    if len(args.raw_filepaths) == 1 and not os.path.exists(args.raw_filepaths[0]):
-        # argument appears to be a singular stem, break it out of the list
-        args.raw_filepaths = args.raw_filepaths[0]
-    elif not args.unsorted_raw_filepaths:
-        args.raw_filepaths.sort()
     
-    inputhandler = InputGuppiIterator(args.raw_filepaths, dtype=args.dtype)
+    if os.path.splitext(args.input_filepaths[0])[1] == ".stamps":
+        inputhandler = InputStampIterator(
+            args.input_filepaths,
+            stamp_index=args.stamp_index
+        )
+    else:
+        inputhandler = InputGuppiIterator(
+            args.input_filepaths,
+            dtype=args.dtype,
+            unsorted_raw_filepaths=args.unsorted_raw_filepaths
+        )
     inputdata_iter = inputhandler.data()
-    inputdata = next(inputdata_iter)
+    inputdata = next(inputdata_iter) # premature check to ensure data can be accessed
 
     if args.output_filepath is None:
         output_filepath = inputhandler.output_filepath_default()
@@ -262,14 +388,9 @@ def main(arg_strs: list = None):
     upchan_bw = metadata.channel_bandwidth_mhz/args.upchannelisation_rate
     # offset to center of channels is deferred
     frequencies_mhz = observed_frequency_bottom_mhz + numpy.arange(metadata.nof_channel*args.upchannelisation_rate)*upchan_bw
-    if upchan_bw < 0:
-        frequencies_mhz = numpy.flip(frequencies_mhz)
-    
-    # should also assert monotonic
-    assert frequencies_mhz[0] < frequencies_mhz[-1], f"{frequencies_mhz}"
 
-    frequency_lowest_mhz = frequencies_mhz[0]
-    frequency_highest_mhz = frequencies_mhz[-1]
+    frequency_lowest_mhz = min(frequencies_mhz[0], frequencies_mhz[-1])
+    frequency_highest_mhz = max(frequencies_mhz[0], frequencies_mhz[-1])
 
     if args.frequency_selection_percentage is not None:
       frequencies_mhz_range = frequency_highest_mhz-frequency_lowest_mhz
@@ -281,14 +402,14 @@ def main(arg_strs: list = None):
     if args.frequency_mhz_begin is None:
         args.frequency_mhz_begin = frequency_lowest_mhz
     elif args.frequency_mhz_begin < frequency_lowest_mhz:
-        raise ValueError(f"Specified begin frequency is out of bounds: < {frequency_lowest_mhz} Hz")
+        raise ValueError(f"Specified begin frequency is out of bounds: {frequency_lowest_mhz} Hz")
 
     if args.frequency_mhz_end is None:
         args.frequency_mhz_end = frequency_highest_mhz
     elif args.frequency_mhz_end > frequency_highest_mhz:
-        raise ValueError(f"Specified end frequency is out of bounds: > {frequency_highest_mhz} Hz")
+        raise ValueError(f"Specified end frequency is out of bounds: {frequency_highest_mhz} Hz")
 
-    frequency_begin_fineidx = len(list(filter(lambda x: x<-abs(upchan_bw), frequencies_mhz-args.frequency_mhz_begin)))
+    frequency_begin_fineidx = len(list(filter(lambda x: x<-upchan_bw, frequencies_mhz-args.frequency_mhz_begin)))
     frequency_end_fineidx = len(list(filter(lambda x: x<=0, frequencies_mhz-args.frequency_mhz_end)))
     assert frequency_begin_fineidx != frequency_end_fineidx, f"{frequency_begin_fineidx} == {frequency_end_fineidx}"
 
@@ -317,11 +438,6 @@ def main(arg_strs: list = None):
     blri_logger.info(f"Fine-frequency relative channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
     blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
     # offset to center of channels
-    if upchan_bw < 0:
-        frequencies_mhz = numpy.flip(frequencies_mhz)
-        freq_count = len(frequencies_mhz)
-        frequency_begin_coarseidx, frequency_end_coarseidx = frequency_end_coarseidx-freq_count, freq_count-frequency_begin_coarseidx
-        frequency_begin_fineidx, frequency_end_fineidx = frequency_end_fineidx-freq_count, freq_count-frequency_begin_fineidx
     frequencies_mhz += 0.5 * upchan_bw
 
     assert len(metadata.polarisation_chars) == metadata.nof_polarisation
@@ -452,7 +568,7 @@ def main(arg_strs: list = None):
                     datablock_bytesize = datablock.size * datablock.itemsize
 
                     t = time.perf_counter_ns()
-                    datablock = dsp.correlate(datablock)
+                    datablock = dsp.correlate(datablock, conjugation_convention_flip=args.invert_correlation_conjugation)
                     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                     blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
@@ -502,11 +618,11 @@ def main(arg_strs: list = None):
                     integration_count = 0
                     integration_buffer.fill(0.0)
 
-                # after all process steps
-                if dsp.cupy_enabled:
-                    datablock = datablock.get()
-                data_spectra_count = datablock.shape[2]
-                datablock = datablock.reshape([1, *datablock.shape])
+                    data_spectra_count = datablock.shape[2]
+                    datablock = datablock.reshape([1, *datablock.shape])
+                    if dsp.cupy_enabled:
+                        datablock = datablock.get()
+                    break
 
             try:
                 t = time.perf_counter_ns()
