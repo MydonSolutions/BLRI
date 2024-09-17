@@ -18,9 +18,14 @@ class GuppiRawSizeParameterSet(BaseModel):
     def to_id_str(self) -> str:
         return f"{self.blockcount}x{'_'.join(map(str, self.blockshape))}"
 
-def gen_telinfo_input(grh, output_frame: AntennaPositionFrame) -> str:
-    filepath_telinfo = "test_telinfo.yaml"
-    rng = numpy.random.default_rng(3141592653**2)
+def gen_telinfo_input(
+        grh,
+        output_frame: AntennaPositionFrame,
+        filepath = None,
+        rng = None,
+    ) -> str:
+    filepath = filepath or "test_telinfo.yaml"
+    rng = rng or numpy.random.default_rng(3141592653**2)
 
     telinfo = generate_telinfo(
         rng,
@@ -47,15 +52,19 @@ def gen_telinfo_input(grh, output_frame: AntennaPositionFrame) -> str:
         telinfo.antenna_position_frame = output_frame
 
     write_telinfo(
-        filepath_telinfo,
+        filepath,
         telinfo.model_dump()
     )
-    return filepath_telinfo
+    return filepath
     
 
-def gen_guppi_input(guppi_size_param: GuppiRawSizeParameterSet) -> str:
-    filepath_gr = "test.0000.raw"
-    rng = numpy.random.default_rng(3141592635**3)
+def gen_guppi_input(
+        guppi_size_param: GuppiRawSizeParameterSet,
+        filepath = None,
+        rng = None,
+    ) -> str:
+    filepath = filepath or "test.0000.raw"
+    rng = rng or numpy.random.default_rng(3141592635**3)
 
     grh = generate_guppi_header(
         rng,
@@ -63,12 +72,12 @@ def gen_guppi_input(guppi_size_param: GuppiRawSizeParameterSet) -> str:
     )
 
     write_guppi_data(
-        filepath_gr,
+        filepath,
         grh,
         rng,
         nof_blocks=guppi_size_param.blockcount
     )
-    return filepath_gr, grh
+    return filepath, grh
 
 
 def generate_telinfo(rng, antenna_numbers):

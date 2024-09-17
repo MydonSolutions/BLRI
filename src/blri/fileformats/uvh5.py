@@ -1,10 +1,11 @@
 from typing import List, Tuple
 from dataclasses import dataclass
-from blri.fileformats.hdf5 import hdf5_fields_are_equal
+from blri.fileformats.hdf5 import hdf5_fields_are_equal, hdf5_field_get
 
 import numpy
 import h5py
 
+from blri import logger as blri_logger
 from blri.fileformats.telinfo import AntennaDetail
 from blri import __version__
 from blri.coords import compute_uvw_from_xyz
@@ -226,14 +227,17 @@ def uvh5_write_chunk(
 def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: float=1e-5):
     with h5py.File(filepath_a, 'r') as h5_a:
         with h5py.File(filepath_b, 'r') as h5_b:
-            header_differences = [
-                field
-                for field in h5_a["Header"]
-                if not hdf5_fields_are_equal(
+            header_differences = []
+            for field in h5_a["Header"]:
+                if hdf5_fields_are_equal(
                     h5_a["Header"][field],
                     h5_b["Header"][field]
-                )
-            ]
+                ):
+                    continue
+
+                header_differences.append(field)
+                blri_logger.error(f"Header['{field}'] inequality:\n\t{hdf5_field_get(h5_a['Header'][field])}\nvs\n\t{hdf5_field_get(h5_b['Header'][field])}")
+            
             data_differences = [
                 field
                 for field in [

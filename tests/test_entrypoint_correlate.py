@@ -5,7 +5,7 @@ from typing import List
 
 from pydantic import BaseModel
 
-from blri.entrypoints.pycorr import main as pycorr_main
+from blri.entrypoints.correlate import correlate_cli
 from blri.fileformats.uvh5 import uvh5_differences
 from blri.fileformats.telinfo import AntennaPositionFrame
 from blri.tests.input_generation import GuppiRawSizeParameterSet, gen_guppi_input, gen_telinfo_input
@@ -17,7 +17,7 @@ class ScenarioParameterSet(BaseModel):
     def to_id_str(self) -> str:
         return f"CuPy: {self.cupy_enabled}, AntFrame: {self.position_frame}"
 
-class PycorrParameterSet(BaseModel):
+class CorrelateParameterSet(BaseModel):
     upchannelisation_rate: int
     integration_rate: int
     numpy_dtype: str
@@ -25,38 +25,38 @@ class PycorrParameterSet(BaseModel):
     def to_id_str(self) -> str:
         return f"u{self.upchannelisation_rate}i{self.integration_rate}"
 
-class EntrypointPycorrParameterSet(BaseModel):
+class EntrypointCorrelateParameterSet(BaseModel):
     guppi_size_param: GuppiRawSizeParameterSet
     scenario_param_list: List[ScenarioParameterSet]
-    pycorr_param_list: List[PycorrParameterSet]
+    correlate_param_list: List[CorrelateParameterSet]
     
     @staticmethod
     def output_reference_id_str(
         guppi_size_param,
-        pycorr_param
+        correlate_param
     ) -> str:
-        return f"{guppi_size_param.to_id_str()}.{pycorr_param.to_id_str()}"
+        return f"{guppi_size_param.to_id_str()}.{correlate_param.to_id_str()}"
     
     
     def sub_parameter_sets(self, UnitTestInstance):
         for scenario_param in self.scenario_param_list:
-            for pycorr_param in self.pycorr_param_list:
-                output_reference_id = self.output_reference_id_str(self.guppi_size_param, pycorr_param)
+            for correlate_param in self.correlate_param_list:
+                output_reference_id = self.output_reference_id_str(self.guppi_size_param, correlate_param)
                 with UnitTestInstance.subTest(f"{output_reference_id} ({scenario_param.to_id_str()})"):
                     yield (
                         os.path.join(
                             os.path.dirname(__file__),
                             "references",
-                            "pycorr",
+                            "correlate",
                             f"test.{output_reference_id}.uvh5"
                         ),
                         scenario_param,
-                        pycorr_param
+                        correlate_param
                     )
 
 
 TEST_CASES = [
-    EntrypointPycorrParameterSet(
+    EntrypointCorrelateParameterSet(
         guppi_size_param=GuppiRawSizeParameterSet(
             blockcount=20,
             blockshape=(3,16,128,2)
@@ -68,15 +68,15 @@ TEST_CASES = [
             )
             for cupy in [False, True]
         ],
-        pycorr_param_list=[
-            PycorrParameterSet(
+        correlate_param_list=[
+            CorrelateParameterSet(
                 upchannelisation_rate=4,
                 integration_rate=128,
                 numpy_dtype="float"       
             )
         ]
     ),
-    EntrypointPycorrParameterSet(
+    EntrypointCorrelateParameterSet(
         guppi_size_param=GuppiRawSizeParameterSet(
             blockcount=20,
             blockshape=(8,16,16,2)
@@ -88,8 +88,8 @@ TEST_CASES = [
             )
             for cupy in [False, True]
         ],
-        pycorr_param_list=[
-            PycorrParameterSet(
+        correlate_param_list=[
+            CorrelateParameterSet(
                 upchannelisation_rate=2,
                 integration_rate=128,
                 numpy_dtype="double"       
@@ -97,7 +97,7 @@ TEST_CASES = [
         ]
     ),
     # 7 MB output reference file
-    # EntrypointPycorrParameterSet(
+    # EntrypointCorrelateParameterSet(
     #     guppi_size_param=GuppiRawSizeParameterSet(
     #         blockcount=16,
     #         blockshape=(2,2,128,2)
@@ -109,8 +109,8 @@ TEST_CASES = [
     #         )
     #         for cupy in [False, True]
     #     ],
-    #     pycorr_param_list=[
-    #         PycorrParameterSet(
+    #     correlate_param_list=[
+    #         CorrelateParameterSet(
     #             upchannelisation_rate=512,
     #             integration_rate=4,
     #             numpy_dtype="double"       
@@ -119,27 +119,27 @@ TEST_CASES = [
     # )
 ]
 
-class TestPycorrEntrypoint(unittest.TestCase):
+class TestCorrelateEntrypoint(unittest.TestCase):
     def run_entrypoint(
         self,
         filepath_telinfo: str,
         filepath_gr: str,
-        pycorr_param: PycorrParameterSet,
+        correlate_param: CorrelateParameterSet,
         cupy: bool,
     ):
         filepath_output = "test.uvh5"
         args = [
             "-t", filepath_telinfo,
-            "-u", pycorr_param.upchannelisation_rate,
-            "-i", pycorr_param.integration_rate,
-            "-T", pycorr_param.numpy_dtype,
+            "-u", correlate_param.upchannelisation_rate,
+            "-i", correlate_param.integration_rate,
+            "-T", correlate_param.numpy_dtype,
             "--output-filepath", filepath_output,
             filepath_gr
         ]
         if cupy:
             args.insert(0, "--cupy")
 
-        pycorr_main(map(str, args))
+        correlate_cli(map(str, args))
         return filepath_output
     
     @staticmethod
@@ -167,7 +167,7 @@ class TestPycorrEntrypoint(unittest.TestCase):
         for test_params in TEST_CASES:
             guppi_input_path, grh = gen_guppi_input(test_params.guppi_size_param)
             for sub_paramset_tuple in test_params.sub_parameter_sets(self):
-                filepath_reference_output, scenario_param, pycorr_param = sub_paramset_tuple
+                filepath_reference_output, scenario_param, correlate_param = sub_paramset_tuple
                 if not scenario_predicate(scenario_param):
                     continue
 
@@ -175,7 +175,7 @@ class TestPycorrEntrypoint(unittest.TestCase):
                 filepath_output = self.run_entrypoint(
                     telinfo_input_path,
                     guppi_input_path,
-                    pycorr_param,
+                    correlate_param,
                     scenario_param.cupy_enabled
                 )
                 yield (
@@ -199,7 +199,7 @@ class TestPycorrEntrypoint(unittest.TestCase):
 
 if __name__ == '__main__':
     if sys.argv[-1] == "write_references":
-        TestPycorrEntrypoint().write_reference_outputs()
+        TestCorrelateEntrypoint().write_reference_outputs()
         exit(0)
 
-    unittest.main(verbosity=3)
+    unittest.main(verbosity=2)

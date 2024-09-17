@@ -1,4 +1,3 @@
-import os
 import logging
 from ._version import __version__
 

@@ -34,7 +34,7 @@ version_file = "src/blri/_version.py"
 zip-safe = false
 
 [project.scripts]
-blri_pycorr = "blri.entrypoints.pycorr:main"
+blri_pycorr = "blri.entrypoints.correlate:correlate_cli"
 blri_uvh5_diff = "blri.entrypoints.uvh5:diff"
 blri_bfr5gen = "blri.entrypoints.bfr5:generate_for_raw"
 blri_bfr5gen_raster = "blri.entrypoints.bfr5:generate_raster_for_raw"
