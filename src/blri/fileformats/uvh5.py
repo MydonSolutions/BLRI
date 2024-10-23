@@ -133,7 +133,8 @@ def uvh5_initialise(
     uvh5g_header.create_dataset("Nants_telescope", data=len(antennas))
 
     antenna_names = [ant.name for ant in antennas]
-    uvh5g_header.create_dataset("antenna_names", data=numpy.array(antenna_names, dtype=f"S{max(map(len, antenna_names))}"), dtype=h5py.special_dtype(vlen=str))
+    uvh5g_header.create_dataset("antenna_names", data=numpy.array(antenna_names).astype('S4'))
+  #    uvh5g_header.create_dataset("antenna_names", data=numpy.array(antenna_names, dtype=f"S{max(map(len, antenna_names))}"), dtype=h5py.special_dtype(vlen=str))
     uvh5g_header.create_dataset("antenna_numbers", data=numpy.array([ant.number for ant in antennas]), dtype='i')
     uvh5g_header.create_dataset("antenna_diameters", data=numpy.array([ant.diameter for ant in antennas]), dtype='d')
     uvh5g_header.create_dataset("antenna_positions", data=numpy.array([ant.position for ant in antennas]), dtype='d')
