@@ -16,7 +16,7 @@ class InputStampIterator:
         time_unix_offset: float
         running_time_unix: float
 
-    def __init__(self, stamp_filepaths: List[str], stamp_index=0):
+    def __init__(self, stamp_filepaths: List[str], stamp_index=0, timestep_increment=0):
         from seticore import stamp_capnp # TODO better handle optional package dependency
 
         self.stamp = None
@@ -35,6 +35,8 @@ class InputStampIterator:
             time_unix_offset = stamp.tstart,
             running_time_unix = 0
         )
+        self.timestep_increment = timestep_increment if timestep_increment > 0 else self.stamp.numTimesteps
+        assert self.stamp.numTimesteps % self.timestep_increment == 0, f"{self.stamp.numTimesteps} % {self.timestep_increment} = {self.stamp.numTimesteps % self.timestep_increment} != 0"
 
         self._data_bytes_processed = 0
         blri_logger.debug(f"""Stamp data shape (T, F, P, A): {(
@@ -43,6 +45,7 @@ class InputStampIterator:
             self.stamp.numPolarizations,
             self.stamp.numAntennas,
         )}""")
+        blri_logger.debug(f"{self.stamp.numTimesteps // self.timestep_increment} steps in time, each spanning {self.timestep_increment}.")
 
         self.stamp_bytes_total = numpy.prod((
             self.stamp.numTimesteps,
@@ -80,19 +83,29 @@ class InputStampIterator:
             self.stamp.numPolarizations,
             self.stamp.numAntennas,
         )
-        data = numpy.array(
-            self.stamp.data
-        ).view(
-            numpy.complex128 # python automatically upscaled the float32
-        ).reshape(
-            data_shape
-        )
-
-        self._data_bytes_processed = self.stamp_bytes_total
-        yield numpy.transpose(
-            data,
+        self._data_bytes_processed = 0
+        all_data = numpy.transpose(numpy.array(
+                self.stamp.data
+            ).view(
+                numpy.complex128 # python automatically upscaled the float32
+            ).reshape(
+                data_shape
+            ),
             (3,1,0,2)
         )
+        
+        for timestep_index in range(
+            0,
+            self.stamp.numTimesteps,
+            self.timestep_increment
+        ):
+            self._data_bytes_processed += (self.stamp_bytes_total//self.stamp.numTimesteps) * self.timestep_increment 
+            yield all_data[
+                :,
+                :,
+                timestep_index:timestep_index+self.timestep_increment,
+                :
+            ]
 
     def increment_time_taking_midpoint_unix(self, step_timesamples) -> float:
         time_step = step_timesamples*self.timekeeper.spectra_timespan_s

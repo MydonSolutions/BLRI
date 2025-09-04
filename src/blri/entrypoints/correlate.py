@@ -211,11 +211,10 @@ class CorrelationIterator:
                     integration_count = 0
                     integration_buffer.fill(0.0)
 
-                    data_spectra_count = datablock.shape[2]
-                    datablock = datablock.reshape([1, *datablock.shape])
-                    if dsp.cupy_enabled:
-                        datablock = datablock.get()
-                    break
+                data_spectra_count = datablock.shape[2]
+                datablock = datablock.reshape([1, *datablock.shape])
+                if dsp.cupy_enabled:
+                    datablock = datablock.get()
 
             try:
                 t = time.perf_counter_ns()
@@ -470,6 +469,12 @@ def correlate_cli(arg_strs: list = None):
         help="The selective index of a stamp within a '.stamps' file. Only applicable when `input_filepaths` is a Seticore Stamps filepath"
     )
     parser.add_argument(
+        "--stamp-timestep-increment",
+        type=int,
+        default=0,
+        help="Set the timestep increment of the iteration through the Stamp's data. Only applicable when `input_filepaths` is a Seticore Stamps filepath"
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -492,7 +497,8 @@ def correlate_cli(arg_strs: list = None):
     if os.path.splitext(args.input_filepaths[0])[1] == ".stamps":
         inputhandler = InputStampIterator(
             args.input_filepaths,
-            stamp_index=args.stamp_index
+            stamp_index=args.stamp_index,
+            timestep_increment=args.stamp_timestep_increment
         )
     else:
         inputhandler = InputGuppiIterator(
