@@ -127,7 +127,7 @@ class TestCorrelateEntrypoint(unittest.TestCase):
         correlate_param: CorrelateParameterSet,
         cupy: bool,
     ):
-        filepath_output = "test.uvh5"
+        filepath_output = "test.0000.uvh5"
         args = [
             "-t", filepath_telinfo,
             "-u", correlate_param.upchannelisation_rate,
