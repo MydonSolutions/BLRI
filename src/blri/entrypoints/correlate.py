@@ -519,5 +519,6 @@ def correlate_cli(arg_strs: list = None):
         invert_uvw_baselines = args.invert_uvw_baselines,
         integration_rate = args.integration_rate,
         polarisations = args.polarisations,
+        output_filepath = args.output_filepath,
     )
 
