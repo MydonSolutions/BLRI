@@ -18,7 +18,7 @@ class AntennaDetail(BaseModel):
     name: str
     number: int
     position: Tuple[float, float, float]
-    diameter: Optional[float]
+    diameter: Optional[float] = None
 
 
 class AntennaPositionFrame(str, Enum):
@@ -60,7 +60,7 @@ class TelescopeInformation(BaseModel):
         for i, antenna in enumerate(self.antennas):
             if antenna.diameter is None:
                 antenna.diameter = self.antenna_diameter
-            assert antenna.diameter is not None
+            assert antenna.diameter is not None, f"Antenna {antenna.name} does not have a diameter."
 
         if self.antenna_position_frame == AntennaPositionFrame.xyz:
             return self
