@@ -23,7 +23,7 @@ def compute_with_cupy():
     extern "C" __global__
     void correlate_kernel_$TYPE$(
         const int length_FT, const int length_A,
-        const complex<$TYPE$>* x, const complex<$TYPE$>* x_conj,
+        const complex<$TYPE$>* x,
         complex<double>* y
     ) {
         int ft_idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -47,10 +47,10 @@ def compute_with_cupy():
             antidx_1 -= -1-antidx_0;
         }
 
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 0] = x[(antidx_0*length_FT + ft_idx)*2+0] * x_conj[(antidx_1*length_FT + ft_idx)*2+0];
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 1] = x[(antidx_0*length_FT + ft_idx)*2+0] * x_conj[(antidx_1*length_FT + ft_idx)*2+1];
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 2] = x[(antidx_0*length_FT + ft_idx)*2+1] * x_conj[(antidx_1*length_FT + ft_idx)*2+0];
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 3] = x[(antidx_0*length_FT + ft_idx)*2+1] * x_conj[(antidx_1*length_FT + ft_idx)*2+1];
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 0] = x[(antidx_0*length_FT + ft_idx)*2+0] * conj(x[(antidx_1*length_FT + ft_idx)*2+0]);
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 1] = x[(antidx_0*length_FT + ft_idx)*2+0] * conj(x[(antidx_1*length_FT + ft_idx)*2+1]);
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 2] = x[(antidx_0*length_FT + ft_idx)*2+1] * conj(x[(antidx_1*length_FT + ft_idx)*2+0]);
+        y[(blockIdx.y*length_FT + ft_idx)*4 + 3] = x[(antidx_0*length_FT + ft_idx)*2+1] * conj(x[(antidx_1*length_FT + ft_idx)*2+1]);
     }
     '''
     correlate_kernels = {
@@ -190,7 +190,7 @@ def correlate(
         FT = F * T
         threads=(512,)
         blocks=((FT+511)//512, A*(A+1)//2)
-        correlate_kernel(blocks, threads, (FT, A, datablock, compy.conj(datablock), corr))
+        correlate_kernel(blocks, threads, (FT, A, datablock, corr))
         return corr
 
     datablock_conj = compy.conjugate(datablock)
