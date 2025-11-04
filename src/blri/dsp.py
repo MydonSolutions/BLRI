@@ -22,11 +22,11 @@ def compute_with_cupy():
 
     extern "C" __global__
     void correlate_kernel_$TYPE$(
-        const int length_FT, const int length_A,
+        const int length_FT, const int length_A, const bool conj_rev,
         const complex<$TYPE$>* x,
         complex<double>* y
     ) {
-        int ft_idx = blockDim.x * blockIdx.x + threadIdx.x;
+        const int ft_idx = blockDim.x * blockIdx.x + threadIdx.x;
         if (ft_idx >= length_FT) {
             return;
         }
@@ -46,17 +46,28 @@ def compute_with_cupy():
             antidx_1 -= (length_A-1-antidx_0)*antidx_0;
             antidx_1 -= -1-antidx_0;
         }
+        antidx_0 = (antidx_0*length_FT + ft_idx)*2;
+        antidx_1 = (antidx_1*length_FT + ft_idx)*2;
+        const int blidx = (blockIdx.y*length_FT + ft_idx)*4;
 
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 0] = x[(antidx_0*length_FT + ft_idx)*2+0] * conj(x[(antidx_1*length_FT + ft_idx)*2+0]);
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 1] = x[(antidx_0*length_FT + ft_idx)*2+0] * conj(x[(antidx_1*length_FT + ft_idx)*2+1]);
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 2] = x[(antidx_0*length_FT + ft_idx)*2+1] * conj(x[(antidx_1*length_FT + ft_idx)*2+0]);
-        y[(blockIdx.y*length_FT + ft_idx)*4 + 3] = x[(antidx_0*length_FT + ft_idx)*2+1] * conj(x[(antidx_1*length_FT + ft_idx)*2+1]);
+        if (conj_rev) {
+            y[blidx+0] = conj(x[antidx_0+0]) * x[antidx_1+0];
+            y[blidx+1] = conj(x[antidx_0+0]) * x[antidx_1+1];
+            y[blidx+2] = conj(x[antidx_0+1]) * x[antidx_1+0];
+            y[blidx+3] = conj(x[antidx_0+1]) * x[antidx_1+1];
+        }
+        else {
+            y[blidx+0] = x[antidx_0+0] * conj(x[antidx_1+0]);
+            y[blidx+1] = x[antidx_0+0] * conj(x[antidx_1+1]);
+            y[blidx+2] = x[antidx_0+1] * conj(x[antidx_1+0]);
+            y[blidx+3] = x[antidx_0+1] * conj(x[antidx_1+1]);
+        }
     }
     '''
     correlate_kernels = {
         numpy.dtype(numpytype): compy.RawKernel(
             kernel_str.replace("$TYPE$", ctype),
-            f"correlate_kernel_{ctype}"
+            f"correlate_kernel_{ctype}",
         )
         for numpytype, ctype in [
             (numpy.complex64, "float"),
@@ -188,9 +199,13 @@ def correlate(
         correlate_kernel = correlate_kernels[datablock.dtype]
 
         FT = F * T
-        threads=(512,)
-        blocks=((FT+511)//512, A*(A+1)//2)
-        correlate_kernel(blocks, threads, (FT, A, datablock, corr))
+        thr = correlate_kernel.max_threads_per_block
+        threads=(thr,1)
+        blocks=((FT+(thr-1))//thr, A*(A+1)//2)
+        correlate_kernel(
+            blocks, threads,
+            (FT, A, conjugation_convention_flip, datablock, corr)
+        )
         return corr
 
     datablock_conj = compy.conjugate(datablock)
