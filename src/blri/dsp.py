@@ -204,7 +204,7 @@ def correlate(
         blocks=((FT+(thr-1))//thr, A*(A+1)//2)
         correlate_kernel(
             blocks, threads,
-            (FT, A, conjugation_convention_flip, datablock, corr)
+            (FT, A, conjugation_convention_flip, compy.ascontiguousarray(datablock), corr)
         )
         return corr
 
