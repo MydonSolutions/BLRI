@@ -269,18 +269,6 @@ def correlate(
         polarisations
     )
 
-    metadata = correlation_iter.metadata
-
-    if correlation_iter.metadata.antenna_names is not None:
-        telinfo.antennas = blri_telinfo.filter_and_reorder_antenna_in_telinfo(
-            telinfo,
-            correlation_iter.metadata.antenna_names
-        ).antennas
-    assert len(telinfo.antennas) == correlation_iter.metadata.nof_antenna, f"len({telinfo.antennas}) != {correlation_iter.metadata.nof_antenna}"
-
-    ant_1_array, ant_2_array = uvh5.get_uvh5_ant_arrays(telinfo.antennas)
-    num_bls = len(ant_1_array)
-
     if correlation_iter.metadata.antenna_names is not None:
         telinfo.antennas = blri_telinfo.filter_and_reorder_antenna_in_telinfo(
             telinfo,
