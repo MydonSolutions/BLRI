@@ -203,7 +203,8 @@ class CorrelationIterator:
                         offset_bins = min(offset_bins, datablock.shape[1])
                         
                         if offset_bins != 0:
-                            shift_direction = -1 if drift_rate >= 0 else 1
+                            freq_direction = 1 if self.metadata.channel_bandwidth_mhz >= 0 else -1
+                            shift_direction = (-1 if drift_rate >= 0 else 1) * freq_direction
                             datablock = dsp.compy.roll(datablock, shift=offset_bins*shift_direction, axis=1) #uses cupy or numpy roll
                             
                             if shift_direction < 0:
