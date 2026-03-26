@@ -84,11 +84,9 @@ class CorrelationIterator:
 
         self.frequency_end_fineidx = frequency_end_fineidx - self.frequency_begin_coarseidx*upchannelisation_rate
         self.frequency_begin_fineidx = frequency_begin_fineidx - self.frequency_begin_coarseidx*upchannelisation_rate
-
-        blri_logger.info(f"Fine-frequency relative channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
-        blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
         # offset to center of channels
         self.frequencies_mhz += 0.5 * upchan_bw
+        blri_logger.info(f"Fch1 = {self.frequencies_mhz[0]}")
 
     
     def data(self):        

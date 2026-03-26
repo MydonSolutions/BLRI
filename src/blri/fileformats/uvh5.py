@@ -142,7 +142,7 @@ def uvh5_initialise(
     uvh5g_header.create_dataset("Nfreqs", data=num_freqs)
     uvh5g_header.create_dataset("Npols", data=num_polprods)
     uvh5g_header.create_dataset("freq_array", data=frequencies_hz, dtype='d')
-    channel_width = [frequencies_hz[i+1]-frequencies_hz[i] for i in range(len(frequencies_hz)-1)]
+    channel_width = [abs(frequencies_hz[i+1]-frequencies_hz[i]) for i in range(len(frequencies_hz)-1)]
     channel_width.append(channel_width[-1])
     assert len(channel_width) == len(frequencies_hz)
     uvh5g_header.create_dataset("channel_width", data=numpy.array(channel_width), dtype='d')
