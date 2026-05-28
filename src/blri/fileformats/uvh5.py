@@ -176,52 +176,61 @@ def uvh5_initialise(
         header_integration_time=uvh5g_header.create_dataset("integration_time", (0,), dtype='d', maxshape=(None,)),
 
         data_visdata=uvh5g_data.create_dataset("visdata", (0, num_freqs, num_polprods), dtype='D', maxshape=(None, num_freqs, num_polprods)),
-        data_flags=uvh5g_data.create_dataset("flags", (0, num_freqs, num_polprods), dtype='?', maxshape=(None, num_freqs, num_polprods)),
-        data_nsamples=uvh5g_data.create_dataset("nsamples", (0, num_freqs, num_polprods), dtype='d', maxshape=(None, num_freqs, num_polprods)),
+        data_flags=uvh5g_data.create_dataset("flags", (0, num_freqs, num_polprods), dtype='?', maxshape=(None, num_freqs, num_polprods), fillvalue=0),
+        data_nsamples=uvh5g_data.create_dataset("nsamples", (0, num_freqs, num_polprods), dtype='d', maxshape=(None, num_freqs, num_polprods), fillvalue=1.0),
     )
 
 
 def uvh5_write_chunk(
     uvh5_datasets: Uvh5DynamicDatasets,
-    ant_1_array,
-    ant_2_array,
-    uvw_array,
-    jd_time_array,
-    integration_time,
-    visdata,
+    ant_1_array, # [B]
+    ant_2_array, # [B]
+    uvw_array, # [?T, B, 3]
+    jd_time_array, # [?T]
+    integration_time, # [0]
+    visdata, #[?T, B, F, Pp]
     flags,
     nsamples,
 ):
-    num_bls, num_freqs, num_polprods = visdata.shape
+    num_times = 1
+    if len(visdata.shape) == 3:
+        num_bls, num_freqs, num_polprods = visdata.shape
+    else:
+        num_times, num_bls, num_freqs, num_polprods = visdata.shape
+    num_blts = num_times * num_bls
 
-    uvh5_datasets.header_ntimes[()] += 1
-    uvh5_datasets.header_nblts[()] += num_bls
+    uvh5_datasets.header_ntimes[()] += num_times
+    uvh5_datasets.header_nblts[()] += num_blts
     num_bltimes = uvh5_datasets.header_nblts[()]
 
 
     uvh5_datasets.header_ant_1_array.resize((num_bltimes,))
-    uvh5_datasets.header_ant_1_array[-num_bls:] = ant_1_array
+    uvh5_datasets.header_ant_1_array[-num_blts:] = numpy.tile(ant_1_array, num_times)
 
     uvh5_datasets.header_ant_2_array.resize((num_bltimes,))
-    uvh5_datasets.header_ant_2_array[-num_bls:] = ant_2_array
+    uvh5_datasets.header_ant_2_array[-num_blts:] = numpy.tile(ant_2_array, num_times)
 
     uvh5_datasets.header_uvw_array.resize((num_bltimes, 3))
-    uvh5_datasets.header_uvw_array[-num_bls:, :] = uvw_array
+    uvh5_datasets.header_uvw_array[-num_blts:] = uvw_array.reshape(num_blts, 3)
 
     uvh5_datasets.header_time_array.resize((num_bltimes,))
-    uvh5_datasets.header_time_array[-num_bls:] = jd_time_array
+    uvh5_datasets.header_time_array[-num_blts:] = numpy.repeat(jd_time_array, num_bls)
 
     uvh5_datasets.header_integration_time.resize((num_bltimes,))
-    uvh5_datasets.header_integration_time[-num_bls:] = integration_time
+    uvh5_datasets.header_integration_time[-num_blts:] = integration_time
 
     uvh5_datasets.data_visdata.resize((num_bltimes, num_freqs, num_polprods))
-    uvh5_datasets.data_visdata[-num_bls:, :, :] = visdata
+    if num_blts > 1:
+        visdata = visdata.reshape((num_blts, num_freqs, num_polprods))
+    uvh5_datasets.data_visdata[-num_blts:, :, :] = visdata
 
     uvh5_datasets.data_flags.resize((num_bltimes, num_freqs, num_polprods))
-    uvh5_datasets.data_flags[-num_bls:, :, :] = flags
+    if (flags != uvh5_datasets.data_flags.fillvalue).any():
+        uvh5_datasets.data_flags[-num_blts:, :, :] = flags
 
     uvh5_datasets.data_nsamples.resize((num_bltimes, num_freqs, num_polprods))
-    uvh5_datasets.data_nsamples[-num_bls:, :, :] = nsamples
+    if (nsamples != uvh5_datasets.data_nsamples.fillvalue).any():
+        uvh5_datasets.data_nsamples[-num_blts:, :, :] = nsamples
 
 
 def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: float=1e-5):
@@ -229,7 +238,17 @@ def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: f
         with h5py.File(filepath_b, 'r') as h5_b:
             header_differences = []
             for field in h5_a["Header"]:
-                if hdf5_fields_are_equal(
+                if field in ["uvw_array"]:
+                    vhdrdata_is_equal = numpy.allclose(
+                        h5_a["Header"][field],
+                        h5_b["Header"][field],
+                        atol=atol,
+                        rtol=rtol
+                    )
+                    if vhdrdata_is_equal:
+                        continue
+
+                elif hdf5_fields_are_equal(
                     h5_a["Header"][field],
                     h5_b["Header"][field]
                 ):
