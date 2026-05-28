@@ -71,9 +71,13 @@ TEST_CASES = [
         correlate_param_list=[
             CorrelateParameterSet(
                 upchannelisation_rate=4,
-                integration_rate=128,
+                integration_rate=integ_rate,
                 numpy_dtype="float"       
             )
+            for integ_rate in [
+                128,
+                16
+            ]
         ]
     ),
     EntrypointCorrelateParameterSet(
