@@ -109,6 +109,7 @@ def upchannelise(
 
 def integrate(
     datablock: compy.ndarray,
+    axis: int = 2,
     keepdims: bool = False
 ) -> compy.ndarray:
     """
@@ -121,7 +122,7 @@ def integrate(
             whether or not the collapsed Time dimension of length 1
             should remain in the shape of the returned data
     """
-    return datablock.sum(axis=2, keepdims=keepdims)
+    return datablock.sum(axis=axis, keepdims=keepdims)
 
 
 def _correlate_antenna_data(

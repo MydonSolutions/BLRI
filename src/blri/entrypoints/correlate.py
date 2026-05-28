@@ -93,7 +93,11 @@ class CorrelationIterator:
     
     def data(self):        
         inputdata_iter = self._inputhandler.data()
+        read_elapsed_s = 0.0
+        concat_elapsed_s = 0.0
+        t = time.perf_counter_ns()
         inputdata = next(inputdata_iter) # premature check to ensure data can be accessed
+        read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
 
         datablock_time_requirement = self.upchannelisation_rate
 
@@ -113,10 +117,9 @@ class CorrelationIterator:
         datasize_processed = 0
         integration_count = 0
         # Integrate fine spectra in a separate buffer
-        correlation_shape = (data_antenna_count*(data_antenna_count+1)//2, len(self.frequencies_mhz), 4)
-        integration_buffer = dsp.compy.zeros(correlation_shape, dtype="D")
-        read_elapsed_s = 0.0
-        concat_elapsed_s = 0.0
+        correlation_shape = (data_antenna_count*(data_antenna_count+1)//2, len(self.frequencies_mhz), 0, 4)
+        integration_buffer = None # dsp.compy.zeros(correlation_shape, dtype="D")
+
         transfer_elapsed_s = 0.0
         reorder_elapsed_s = 0.0
         t_progress = t
@@ -155,24 +158,17 @@ class CorrelationIterator:
                 progress_elapsed_s = 1e-9*(t - t_progress)
                 t_progress = t
 
-                total_elapsed_s = 1e-9*(t - t_start)
-                blri_logger.debug(f"Read time: {read_elapsed_s} s ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
-                blri_logger.debug(f"Concat time: {concat_elapsed_s} s ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
-                blri_logger.debug(f"Transfer time: {transfer_elapsed_s} s ({100*transfer_elapsed_s/progress_elapsed_s:0.2f} %)")
-                blri_logger.debug(f"Reorder time: {reorder_elapsed_s} s ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
-                blri_logger.debug(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
-                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{self._inputhandler.data_bytes_total()/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
-
-                read_elapsed_s = 0.0
-                concat_elapsed_s = 0.0
-                transfer_elapsed_s = 0.0
-                reorder_elapsed_s = 0.0
-
-                blri_logger.debug(f"Process steps in provided datablock: {datablock.shape[2]}/{datablock_time_requirement} = {datablock.shape[2]/datablock_time_requirement}")
+                blri_logger.info_steps(f"Process steps in provided datablock: {datablock.shape[2]}/{datablock_time_requirement} = {datablock.shape[2]/datablock_time_requirement}")
                 while datablock.shape[2] >= datablock_time_requirement:
                     assert len(datablock.shape) == 4
-                    datablock_residual = datablock[:, :, datablock_time_requirement:, :]
-                    datablock = datablock[:, :, 0:datablock_time_requirement, :]
+                    residual_index = datablock.shape[2]-(datablock.shape[2]%datablock_time_requirement)
+                    time_outputs_per = residual_index//datablock_time_requirement
+                    blri_logger.info_steps(f"Truncating {time_outputs_per} output time-coordinates to whole integrations with rate of {self.integration_rate}.")
+                    time_outputs_per -= time_outputs_per%self.integration_rate
+                    blri_logger.info_steps(f"Iterating in chunks of {time_outputs_per} step{('s' if time_outputs_per != 1 else '')}.")
+                    residual_index = time_outputs_per*datablock_time_requirement
+                    datablock_residual = datablock[:, :, residual_index:, :]
+                    datablock = datablock[:, :, 0:residual_index, :]
 
                     datablock_bytesize = datablock.size * datablock.itemsize
 
@@ -192,11 +188,25 @@ class CorrelationIterator:
                     blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                     t = time.perf_counter_ns()
-                    assert datablock.shape[2] == 1
-                    integration_buffer += datablock.reshape(integration_buffer.shape)
+                    if datablock.shape[2] != self.integration_rate:
+                        datablock = dsp.integrate(
+                            datablock.reshape(datablock.shape[0:2] + (-1, self.integration_rate) + datablock.shape[3:]),
+                            axis=3
+                        )
+                    if integration_buffer is None:
+                        shape_is_right = (
+                            datablock.shape[0:2] == correlation_shape[0:2]
+                            and datablock.shape[3] == correlation_shape[3]
+                        )
+                        assert shape_is_right, f"Datablock shape does not meet expectations: {datablock.shape} vs {correlation_shape}"
+                        integration_buffer = datablock.astype("D")
+                    else:
+                        assert datablock.shape[2] == integration_buffer.shape[2]
+                        integration_buffer += datablock.reshape(integration_buffer.shape)
+
                     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+                    integration_count += integration_buffer.shape[2]
                     blri_logger.debug(f"Integration {integration_count}/{self.integration_rate}: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
-                    integration_count += 1
 
                     datablock = datablock_residual
                     del datablock_residual
@@ -204,9 +214,12 @@ class CorrelationIterator:
                     if integration_count < self.integration_rate:
                         continue
 
-                    yield integration_buffer.get() if dsp.cupy_enabled else integration_buffer, julian_date_from_unix(
+                    yield integration_buffer.get() if dsp.cupy_enabled else integration_buffer, [
+                        julian_date_from_unix(
                             self._inputhandler.increment_time_taking_midpoint_unix(datablock_time_requirement*self.integration_rate)
                         )
+                        for _ in range(integration_buffer.shape[2])
+                    ]
 
                     integration_count = 0
                     integration_buffer.fill(0.0)
@@ -215,11 +228,25 @@ class CorrelationIterator:
                 datablock = datablock.reshape([1, *datablock.shape])
                 if dsp.cupy_enabled:
                     datablock = datablock.get()
-
+                
+                
+                total_elapsed_s = 1e-9*(t - t_start)
+                blri_logger.info_blocks(f"Read time:        {read_elapsed_s:0.3f} s     ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Concat time:      {concat_elapsed_s:0.3f} s   ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Transfer time:    {transfer_elapsed_s:0.3f} s ({100*transfer_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Reorder time:     {reorder_elapsed_s:0.3f} s  ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
+                blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{self._inputhandler.data_bytes_total()/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
+                transfer_elapsed_s = 0.0
+                reorder_elapsed_s = 0.0
+                read_elapsed_s = 0.0
+                concat_elapsed_s = 0.0
+                
             try:
                 t = time.perf_counter_ns()
                 inputdata = next(inputdata_iter)
                 read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
+                blri_logger.debug(f"Read : {inputdata.size * inputdata.itemsize / (read_elapsed_s*10**6)} MB/s")
                 data_spectra_count += inputdata.shape[2]
                 inputdata = inputdata.reshape([1, *inputdata.shape])
                 if datablock.size == 0:
@@ -322,35 +349,36 @@ def correlate(
         )
         
         for correlation_tuple in correlation_iter.data():
-            correlation, time_jd = correlation_tuple
+            correlation, time_jds = correlation_tuple
             t = time.perf_counter_ns()
-            jd_time_array.fill(
-                time_jd
-            )
+            for time_idx, time_jd in enumerate(time_jds):
+                jd_time_array.fill(
+                    time_jd
+                )
 
-            uvh5.uvh5_write_chunk(
-                uvh5_datasets,
-                ant_1_array,
-                ant_2_array,
-                uvh5.get_uvw_array(
-                    jd_time_array[0],
-                    phase_center_radians,
-                    ant_xyz,
-                    lla,
-                    baseline_ant_1_indices,
-                    baseline_ant_2_indices,
-                    dut1=dut1,
-                    baseline_1_to_2=not invert_uvw_baselines
-                ),
-                jd_time_array,
-                integration_time,
-                correlation,
-                flags,
-                nsamples,
-            )
+                uvh5.uvh5_write_chunk(
+                    uvh5_datasets,
+                    ant_1_array,
+                    ant_2_array,
+                    uvh5.get_uvw_array(
+                        jd_time_array[0],
+                        phase_center_radians,
+                        ant_xyz,
+                        lla,
+                        baseline_ant_1_indices,
+                        baseline_ant_2_indices,
+                        dut1=dut1,
+                        baseline_1_to_2=not invert_uvw_baselines
+                    ),
+                    jd_time_array,
+                    integration_time,
+                    correlation[:,:,time_idx,:],
+                    flags,
+                    nsamples,
+                )
             
             elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-            blri_logger.debug(f"Write: {(correlation.size * correlation.itemsize)/(elapsed_s*10**6)} MB/s")
+            blri_logger.debug(f"Write {correlation.shape[2]} correlation{'s' if correlation.shape[2] != 1 else ''}: {(correlation.size * correlation.itemsize)/(elapsed_s*10**6)} MB/s")
 
     return output_filepath
 
@@ -467,13 +495,13 @@ def correlate_cli(arg_strs: list = None):
         "--verbose",
         action="count",
         default=0,
-        help="Increase the verbosity of the generation (0=Error, 1=Warn, 2=Info (progress statements), 3=Debug)."
+        help="Increase the verbosity of the generation (0=Error, 1=Warn, 2=Info (progress statements), 3=Info (blocks statements), 4=Info (steps statements), 5=Info (throughput statements), 6=Debug)."
     )
 
     args = parser.parse_args(arg_strs)
     blri_logger.setLevel(
         [
-            logging.ERROR, logging.WARNING, logging.INFO, logging.DEBUG
+            logging.ERROR, logging.WARNING, logging.INFO, logging.INFO_BLOCKS, logging.INFO_STEPS, logging.INFO_THROUGHPUT, logging.DEBUG
         ][args.verbose]
     )
     
