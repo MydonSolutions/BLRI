@@ -107,10 +107,7 @@ class CorrelationIterator:
             # TODO introduce memory limit here, obvious minimum is one channelisation at a time
             datablock_time_requirement *= integs_per
 
-        datablock_shape = list(inputdata.shape)
-        datablocks_per_requirement = datablock_time_requirement/datablock_shape[2]
-        blri_logger.debug(f"Collects ceil({datablocks_per_requirement}) blocks for correlation.")
-        datablock_shape[2] = numpy.ceil(datablocks_per_requirement)*datablock_shape[2]
+        blri_logger.debug(f"{inputdata.shape[2]/datablock_time_requirement} correlations per block read, which has {integs_per} integrations.")
 
         data_antenna_count = inputdata.shape[0]
         data_spectra_count = inputdata.shape[2]
@@ -168,8 +165,6 @@ class CorrelationIterator:
                 while datablock.shape[2] >= datablock_time_requirement:
                     assert len(datablock.shape) == 4
                     residual_index = datablock.shape[2]-(datablock.shape[2]%datablock_time_requirement)
-                    time_outputs_per = residual_index//datablock_time_requirement
-                    blri_logger.info_steps(f"Truncating {time_outputs_per} output time-coordinates to whole integrations with rate of {self.integration_rate}.")
                     
                     datablock_residual = datablock[:, :, residual_index:, :]
                     datablock = datablock[:, :, 0:residual_index, :]
@@ -192,12 +187,11 @@ class CorrelationIterator:
                     blri_logger.debug(f"Correlation: {datablock_bytesize/(elapsed_s*10**6)} MB/s")
 
                     t = time.perf_counter_ns()
+                    integration_count += datablock.shape[2]
                     if datablock.shape[2] > self.integration_rate:
                         datablock.shape = (datablock.shape[0:2] + (-1, self.integration_rate) + datablock.shape[3:])
-                        integration_count += datablock.shape[3]
                         datablock = dsp.integrate(datablock, axis=3)
                     else:
-                        integration_count += datablock.shape[2]
                         datablock = dsp.integrate(datablock, axis=2, keepdims=True)
 
                     assert datablock.shape[2] == integration_buffer.shape[0]
@@ -220,7 +214,7 @@ class CorrelationIterator:
                     yield integration_buffer.get() if dsp.cupy_enabled else integration_buffer, numpy.array(
                         [
                             julian_date_from_unix(
-                                self._inputhandler.increment_time_taking_midpoint_unix(datablock_time_requirement*self.integration_rate)
+                                self._inputhandler.increment_time_taking_midpoint_unix(self.upchannelisation_rate*self.integration_rate)
                             )
                             for _ in range(integration_buffer.shape[0])
                         ],
