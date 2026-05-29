@@ -99,6 +99,25 @@ class CorrelationIterator:
         inputdata = next(inputdata_iter) # premature check to ensure data can be accessed
         read_elapsed_s += 1e-9*(time.perf_counter_ns() - t)
 
+        # size up the correlation product
+        data_antenna_count = inputdata.shape[0]
+        data_spectra_count = inputdata.shape[2]
+        single_correlation_shape = (data_antenna_count*(data_antenna_count+1)//2, len(self.frequencies_mhz), 4)
+
+        num_elements = numpy.prod(single_correlation_shape)
+        item_size = numpy.dtype("D").itemsize
+        req_bytes = num_elements * item_size
+        blri_logger.info(f"Integration buffer bytes: {req_bytes//10**3:0.1f} KB")
+        if dsp.cupy_enabled:
+            mempool = dsp.compy.get_default_memory_pool()
+            mempool.free_all_blocks()
+            mempool.set_limit(fraction=1.0)
+            mem_bytes = mempool.get_limit() - mempool.total_bytes()
+        else:
+            # TODO use psutil to check available RAM
+            pass
+
+
         datablock_time_requirement = self.upchannelisation_rate
         times_per_chann = inputdata.shape[2]//datablock_time_requirement
         integs_per = 1
@@ -107,10 +126,9 @@ class CorrelationIterator:
             # TODO introduce memory limit here, obvious minimum is one channelisation at a time
             datablock_time_requirement *= integs_per
 
-        blri_logger.debug(f"{inputdata.shape[2]/datablock_time_requirement} correlations per block read, which has {integs_per} integrations.")
+        blri_logger.info_steps(f"{integs_per} integrations per correlation product.")
+        blri_logger.info_steps(f"{inputdata.shape[2]/datablock_time_requirement} correlation products per block read.")
 
-        data_antenna_count = inputdata.shape[0]
-        data_spectra_count = inputdata.shape[2]
         # while gathering blocks of data, `datablock` is shape (Block, A, F, T, P)
         datablock = inputdata.reshape([1, *inputdata.shape])
 
@@ -120,7 +138,7 @@ class CorrelationIterator:
         datasize_processed = 0
         integration_count = 0
         # Integrate fine spectra in a separate buffer
-        correlation_shape = (integs_per, data_antenna_count*(data_antenna_count+1)//2, len(self.frequencies_mhz), 4)
+        correlation_shape = (integs_per, ) + single_correlation_shape
         integration_buffer = dsp.compy.zeros(correlation_shape, dtype="D")
 
         transfer_elapsed_s = 0.0
