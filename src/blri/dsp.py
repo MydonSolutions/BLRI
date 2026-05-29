@@ -122,7 +122,16 @@ def integrate(
             whether or not the collapsed Time dimension of length 1
             should remain in the shape of the returned data
     """
-    return datablock.sum(axis=axis, keepdims=keepdims)
+    # inplace summation
+    slices = [slice(None)]*datablock.ndim
+    slices[axis] = slice(0,1)
+    slices = tuple(slices)
+    datablock.sum(axis=axis, out=datablock[slices], keepdims=True)
+    if keepdims:
+        return datablock[slices]
+    return datablock[slices].reshape(
+        [datablock.shape[i] for i in range(datablock.ndim) if i != axis]
+    )
 
 
 def _correlate_antenna_data(
