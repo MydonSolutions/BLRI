@@ -23,6 +23,7 @@ class CorrelationIterator:
         integration_rate: int = 1,
         invert_correlation_conjugation: Optional[bool] = False,
         invert_uvw_baselines: Optional[bool] = False,
+        dedrift: float = 0.0,
         polarisations: Optional[str] = None,
     ):
         self._inputhandler = inputhandler
@@ -30,6 +31,7 @@ class CorrelationIterator:
         self.integration_rate = integration_rate
         self.invert_correlation_conjugation = invert_correlation_conjugation
         self.invert_uvw_baselines = invert_uvw_baselines
+        self.dedrift = dedrift
         
         self.metadata = inputhandler.metadata(polarisation_chars=polarisations)
 
@@ -84,11 +86,9 @@ class CorrelationIterator:
 
         self.frequency_end_fineidx = frequency_end_fineidx - self.frequency_begin_coarseidx*upchannelisation_rate
         self.frequency_begin_fineidx = frequency_begin_fineidx - self.frequency_begin_coarseidx*upchannelisation_rate
-
-        blri_logger.info(f"Fine-frequency relative channel range: [{frequency_begin_fineidx}, {frequency_end_fineidx})")
-        blri_logger.info(f"Fine-frequency range: [{frequencies_mhz[0]}, {frequencies_mhz[-1]}] MHz")
         # offset to center of channels
         self.frequencies_mhz += 0.5 * upchan_bw
+        blri_logger.info(f"Fch1 = {self.frequencies_mhz[0]}")
 
     
     def data(self):        
@@ -137,6 +137,7 @@ class CorrelationIterator:
         last_data_pos = 0
         datasize_processed = 0
         integration_count = 0
+        absolute_fine_time_index = 0
         # Integrate fine spectra in a separate buffer
         correlation_shape = (integs_per, ) + single_correlation_shape
         integration_buffer = dsp.compy.zeros(correlation_shape, dtype="D")
@@ -191,6 +192,26 @@ class CorrelationIterator:
                         datablock[:, self.frequency_begin_coarseidx:self.frequency_end_coarseidx, :, :],
                         self.upchannelisation_rate
                     )[:, self.frequency_begin_fineidx:self.frequency_end_fineidx, :, :]
+
+                    #compute the dedrift maths 
+                    if self.dedrift != 0.0:
+                        df = abs(self.metadata.channel_bandwidth_mhz * 1e6) / self.upchannelisation_rate
+                        dt = self.metadata.spectra_timespan_s * self.upchannelisation_rate
+                        offset_bins = int(numpy.round(abs(self.dedrift) * absolute_fine_time_index * dt / df))
+                        
+                        offset_bins = min(offset_bins, datablock.shape[1])
+                        
+                        if offset_bins != 0:
+                            freq_direction = 1 if self.metadata.channel_bandwidth_mhz >= 0 else -1
+                            shift_direction = (-1 if self.dedrift >= 0 else 1) * freq_direction
+                            datablock = dsp.compy.roll(datablock, shift=offset_bins*shift_direction, axis=1) #uses cupy or numpy roll
+                            
+                            if shift_direction < 0:
+                                datablock[:, offset_bins*shift_direction:, :, :] = 0
+                            else:
+                                datablock[:, :offset_bins*shift_direction, :, :] = 0
+
+                    absolute_fine_time_index += 1
 
                     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
                     blri_logger.debug(f"Channelisation: {datablock_bytesize/(elapsed_s*10**6):0.2f} MB/s")
@@ -300,6 +321,7 @@ def correlate(
     integration_rate: int = 1,
     invert_correlation_conjugation: Optional[bool] = False,
     invert_uvw_baselines: Optional[bool] = False,
+    dedrift: float = 0.0,
     polarisations: Optional[str] = None,
     output_filepath: Optional[str] = None
 ) -> str: 
@@ -320,7 +342,8 @@ def correlate(
         integration_rate,
         invert_correlation_conjugation,
         invert_uvw_baselines,
-        polarisations
+        dedrift=dedrift,
+        polarisations=polarisations,
     )
 
     if correlation_iter.metadata.antenna_names is not None:
@@ -445,6 +468,12 @@ def correlate_cli(arg_strs: list = None):
         help="The integration rate.",
     )
     parser.add_argument(
+        "--dedrift",
+        type=float,
+        default=0.0,
+        help="Dedrifting rate in Hz/s to apply after upchannelisation."
+    )
+    parser.add_argument(
         "-p",
         "--polarisations",
         type=str,
@@ -563,6 +592,7 @@ def correlate_cli(arg_strs: list = None):
         invert_correlation_conjugation = args.invert_correlation_conjugation,
         invert_uvw_baselines = args.invert_uvw_baselines,
         integration_rate = args.integration_rate,
+        dedrift=args.dedrift,
         polarisations = args.polarisations,
         output_filepath = args.output_filepath,
     )
