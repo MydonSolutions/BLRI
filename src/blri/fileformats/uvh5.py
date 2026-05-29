@@ -77,13 +77,18 @@ def get_uvw_array(
         longlatalt_rad,
         dut1=dut1
     )
+    if uvws.ndim == 3:
+        uvws = uvws.transpose((1, 0, 2)) # [ant, time, uvw]
 
     relative_uvws = numpy.array([ # ant_1 -> ant_2
-        uvws[:, baseline_ant_2_indices[baseline_i], :] - uvws[:, baseline_ant_1_indices[baseline_i], :]
+        uvws[baseline_ant_2_indices[baseline_i], :] - uvws[baseline_ant_1_indices[baseline_i], :]
         for baseline_i in range(len(baseline_ant_1_indices))
     ])
     if not baseline_1_to_2:
         relative_uvws = -1*relative_uvws
+    
+    if relative_uvws.ndim == 3:
+        return relative_uvws.transpose((1, 0, 2)) # [time, baseline, uvw]
     return relative_uvws
 
 
