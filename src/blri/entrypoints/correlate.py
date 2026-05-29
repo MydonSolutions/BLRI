@@ -23,7 +23,7 @@ class CorrelationIterator:
         integration_rate: int = 1,
         invert_correlation_conjugation: Optional[bool] = False,
         invert_uvw_baselines: Optional[bool] = False,
-        dedispersion: float = 0.0,
+        dedrift: float = 0.0,
         polarisations: Optional[str] = None,
     ):
         self._inputhandler = inputhandler
@@ -31,7 +31,7 @@ class CorrelationIterator:
         self.integration_rate = integration_rate
         self.invert_correlation_conjugation = invert_correlation_conjugation
         self.invert_uvw_baselines = invert_uvw_baselines
-        self.dedispersion = dedispersion
+        self.dedrift = dedrift
         
         self.metadata = inputhandler.metadata(polarisation_chars=polarisations)
 
@@ -193,18 +193,17 @@ class CorrelationIterator:
                         self.upchannelisation_rate
                     )[:, self.frequency_begin_fineidx:self.frequency_end_fineidx, :, :]
 
-                    #compute the dedispersion maths 
-                    if self.dedispersion != 0.0:
-                        drift_rate = self.dedispersion
+                    #compute the dedrift maths 
+                    if self.dedrift != 0.0:
                         df = abs(self.metadata.channel_bandwidth_mhz * 1e6) / self.upchannelisation_rate
                         dt = self.metadata.spectra_timespan_s * self.upchannelisation_rate
-                        offset_bins = int(numpy.round(abs(drift_rate) * absolute_fine_time_index * dt / df))
+                        offset_bins = int(numpy.round(abs(self.dedrift) * absolute_fine_time_index * dt / df))
                         
                         offset_bins = min(offset_bins, datablock.shape[1])
                         
                         if offset_bins != 0:
                             freq_direction = 1 if self.metadata.channel_bandwidth_mhz >= 0 else -1
-                            shift_direction = (-1 if drift_rate >= 0 else 1) * freq_direction
+                            shift_direction = (-1 if self.dedrift >= 0 else 1) * freq_direction
                             datablock = dsp.compy.roll(datablock, shift=offset_bins*shift_direction, axis=1) #uses cupy or numpy roll
                             
                             if shift_direction < 0:
@@ -322,7 +321,7 @@ def correlate(
     integration_rate: int = 1,
     invert_correlation_conjugation: Optional[bool] = False,
     invert_uvw_baselines: Optional[bool] = False,
-    dedispersion: float = 0.0,
+    dedrift: float = 0.0,
     polarisations: Optional[str] = None,
     output_filepath: Optional[str] = None
 ) -> str: 
@@ -343,7 +342,7 @@ def correlate(
         integration_rate,
         invert_correlation_conjugation,
         invert_uvw_baselines,
-        dedispersion=dedispersion,
+        dedrift=dedrift,
         polarisations=polarisations,
     )
 
@@ -469,10 +468,10 @@ def correlate_cli(arg_strs: list = None):
         help="The integration rate.",
     )
     parser.add_argument(
-        "--dedispersion",
+        "--dedrift",
         type=float,
         default=0.0,
-        help="Dedrifting/dedispersion rate in Hz/s to apply after upchannelisation."
+        help="Dedrifting rate in Hz/s to apply after upchannelisation."
     )
     parser.add_argument(
         "-p",
@@ -593,7 +592,7 @@ def correlate_cli(arg_strs: list = None):
         invert_correlation_conjugation = args.invert_correlation_conjugation,
         invert_uvw_baselines = args.invert_uvw_baselines,
         integration_rate = args.integration_rate,
-        dedispersion=args.dedispersion,
+        dedrift=args.dedrift,
         polarisations = args.polarisations,
         output_filepath = args.output_filepath,
     )
