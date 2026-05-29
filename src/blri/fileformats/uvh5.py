@@ -1,5 +1,6 @@
 from typing import List, Tuple, Union
 from dataclasses import dataclass
+import time
 from blri.fileformats.hdf5 import hdf5_fields_are_equal, hdf5_field_get
 
 import numpy
@@ -203,34 +204,55 @@ def uvh5_write_chunk(
     uvh5_datasets.header_nblts[()] += num_blts
     num_bltimes = uvh5_datasets.header_nblts[()]
 
-
+    t = time.perf_counter_ns()
     uvh5_datasets.header_ant_1_array.resize((num_bltimes,))
     uvh5_datasets.header_ant_1_array[-num_blts:] = numpy.tile(ant_1_array, num_times)
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Tile x{num_times} and write ant_1_array: {elapsed_s:0.3f} s, {(ant_1_array.size * ant_1_array.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.header_ant_2_array.resize((num_bltimes,))
     uvh5_datasets.header_ant_2_array[-num_blts:] = numpy.tile(ant_2_array, num_times)
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Tile x{num_times} and write ant_2_array: {elapsed_s:0.3f} s, {(ant_2_array.size * ant_2_array.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.header_uvw_array.resize((num_bltimes, 3))
     uvh5_datasets.header_uvw_array[-num_blts:] = uvw_array.reshape(num_blts, 3)
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Write uvw_array: {elapsed_s:0.3f} s, {(uvw_array.size * uvw_array.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.header_time_array.resize((num_bltimes,))
     uvh5_datasets.header_time_array[-num_blts:] = numpy.repeat(jd_time_array, num_bls)
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Repeat x{num_bls} and write time_array: {elapsed_s:0.3f} s, {(jd_time_array.size * jd_time_array.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.header_integration_time.resize((num_bltimes,))
     uvh5_datasets.header_integration_time[-num_blts:] = numpy.ones(num_blts)*integration_time
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Broadcast x{num_blts} integration_time: {elapsed_s:0.3f} s, {(integration_time.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.data_visdata.resize((num_bltimes, num_freqs, num_polprods))
-    if num_blts > 1:
-        visdata = visdata.reshape((num_blts, num_freqs, num_polprods))
-    uvh5_datasets.data_visdata[-num_blts:, :, :] = visdata
+    uvh5_datasets.data_visdata[-num_blts:, :, :] = visdata.reshape((num_blts, num_freqs, num_polprods))
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Write visdata: {elapsed_s:0.3f} s, {(visdata.size * visdata.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.data_flags.resize((num_bltimes, num_freqs, num_polprods))
     if (flags != uvh5_datasets.data_flags.fillvalue).any():
         uvh5_datasets.data_flags[-num_blts:, :, :] = flags
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Write flags: {elapsed_s:0.3f} s, {(flags.size * flags.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
+    t = time.perf_counter_ns()
     uvh5_datasets.data_nsamples.resize((num_bltimes, num_freqs, num_polprods))
     if (nsamples != uvh5_datasets.data_nsamples.fillvalue).any():
         uvh5_datasets.data_nsamples[-num_blts:, :, :] = nsamples
+    elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+    blri_logger.debug(f"Write nsamples: {elapsed_s:0.3f} s, {(nsamples.size * nsamples.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
 
 def uvh5_differences(filepath_a: str, filepath_b: str, atol: float=1e-8, rtol: float=1e-5):
