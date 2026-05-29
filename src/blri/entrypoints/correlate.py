@@ -352,23 +352,24 @@ def correlate(
             correlation, time_jds = correlation_tuple
             t = time.perf_counter_ns()
 
+            uvw_arrays = uvh5.get_uvw_array(
+                time_jds,
+                phase_center_radians,
+                ant_xyz,
+                lla,
+                baseline_ant_1_indices,
+                baseline_ant_2_indices,
+                dut1=dut1,
+                baseline_1_to_2=not invert_uvw_baselines
+            )
+            elapsed_s = 1e-9*(time.perf_counter_ns() - t)
+            blri_logger.debug(f"Generate {len(time_jds)} UVW arrays ({elapsed_s:0.3f} s)")
+
             uvh5.uvh5_write_chunk(
                 uvh5_datasets,
                 ant_1_array,
                 ant_2_array,
-                numpy.stack([
-                    uvh5.get_uvw_array(
-                        time_jd,
-                        phase_center_radians,
-                        ant_xyz,
-                        lla,
-                        baseline_ant_1_indices,
-                        baseline_ant_2_indices,
-                        dut1=dut1,
-                        baseline_1_to_2=not invert_uvw_baselines
-                    )
-                    for time_jd in time_jds
-                ]),
+                uvw_arrays,
                 time_jds,
                 integration_time,
                 correlation,

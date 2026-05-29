@@ -45,7 +45,7 @@ def get_polarisation_array(polarisation_strings: list):
 
 
 def get_uvw_array(
-    time_jd: float,
+    time_jd: Union[float, numpy.ndarray],
     source_radec_rad: Tuple[float, float],
     ant_coordinates: numpy.ndarray,
     longlatalt_rad: Tuple[float, float, float],
@@ -78,7 +78,7 @@ def get_uvw_array(
     )
 
     relative_uvws = numpy.array([ # ant_1 -> ant_2
-        uvws[baseline_ant_2_indices[baseline_i], :] - uvws[baseline_ant_1_indices[baseline_i], :]
+        uvws[:, baseline_ant_2_indices[baseline_i], :] - uvws[:, baseline_ant_1_indices[baseline_i], :]
         for baseline_i in range(len(baseline_ant_1_indices))
     ])
     if not baseline_1_to_2:
