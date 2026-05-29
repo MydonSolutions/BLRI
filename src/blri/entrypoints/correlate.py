@@ -229,12 +229,13 @@ class CorrelationIterator:
                 if dsp.cupy_enabled:
                     datablock = datablock.get()
                 
-                
-                total_elapsed_s = 1e-9*(t - t_start)
+                total_elapsed_s = 1e-9*(time.perf_counter_ns() - t_start)
                 blri_logger.info_blocks(f"Read time:        {read_elapsed_s:0.3f} s     ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Concat time:      {concat_elapsed_s:0.3f} s   ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Transfer time:    {transfer_elapsed_s:0.3f} s ({100*transfer_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Reorder time:     {reorder_elapsed_s:0.3f} s  ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
+                external_elapsed_s = total_elapsed_s - (read_elapsed_s + concat_elapsed_s + transfer_elapsed_s + reorder_elapsed_s)
+                blri_logger.info_blocks(f"External time:    {external_elapsed_s:0.3f} s  ({100*external_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Running throughput: {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
                 blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{self._inputhandler.data_bytes_total()/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
                 transfer_elapsed_s = 0.0
@@ -380,7 +381,7 @@ def correlate(
             )
             
             elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-            blri_logger.debug(f"Write {correlation.shape[2]} correlation{'s' if correlation.shape[2] != 1 else ''}: {(correlation.size * correlation.itemsize)/(elapsed_s*10**6)} MB/s")
+            blri_logger.debug(f"Write {correlation.shape[0]} correlation{'s' if correlation.shape[0] != 1 else ''}: {(correlation.size * correlation.itemsize)/(elapsed_s*10**6)} MB/s ({elapsed_s:0.3f} s)")
 
     return output_filepath
 
