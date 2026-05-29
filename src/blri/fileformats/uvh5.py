@@ -172,6 +172,11 @@ def uvh5_initialise(
     uvh5g_header.create_dataset("phase_center_epoch", data=2000.0)
     uvh5g_header.create_dataset("phase_center_frame", data="icrs".encode())
 
+    # support faster ingest due to consistent number of baselines per time
+    uvh5g_header.create_dataset("blts_are_rectangular", data=True)
+    uvh5g_header.create_dataset("time_axis_faster_than_bls", data=False)
+    uvh5g_header.create_dataset("blt_order", data="time, baseline")
+
     return Uvh5DynamicDatasets(
         header_ntimes=uvh5g_header.create_dataset("Ntimes", data=0),
         header_nblts=uvh5g_header.create_dataset("Nblts", data=0),
