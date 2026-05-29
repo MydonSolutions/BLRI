@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import pyproj
 import numpy
@@ -96,7 +96,7 @@ def transform_antenna_positions_xyz_to_enu(longitude_rad, latitude_rad, altitude
 
 
 def compute_uvw_from_enu(
-        time_jd: float,
+        time_jd: Union[float, numpy.ndarray],
         source_radec_rad: Tuple[float, float],
         ant_enu_coordinates: numpy.ndarray,
         longlatalt_rad: Tuple[float, float, float],
@@ -150,7 +150,10 @@ def compute_uvw_from_enu(
     sin_latitude = numpy.sin(longlatalt_rad[1])
     cos_latitude = numpy.cos(longlatalt_rad[1])
 
-    uvws = numpy.zeros(ant_enu_coordinates.shape, dtype=numpy.float64)
+    T = 1
+    if isinstance(time_jd, numpy.ndarray):
+        T = time_jd.size
+    uvws = numpy.zeros(((T,) + ant_enu_coordinates.shape), dtype=numpy.float64)
 
     for ant in range(ant_enu_coordinates.shape[0]):
         # RotX(latitude) anti-clockwise
@@ -164,14 +167,14 @@ def compute_uvw_from_enu(
         z = -sin_hangle*x_ + cos_hangle*z
 
         # RotX(declination) clockwise
-        uvws[ant, 0] = x
-        uvws[ant, 1] = cos_declination*y - sin_declination*z
-        uvws[ant, 2] = sin_declination*y + cos_declination*z
+        uvws[:, ant, 0] = x
+        uvws[:, ant, 1] = cos_declination*y - sin_declination*z
+        uvws[:, ant, 2] = sin_declination*y + cos_declination*z
 
-    return uvws
+    return uvws[0, :, :] if isinstance(time_jd, float) else uvws
 
 def compute_uvw_from_xyz(
-        time_jd: float,
+        time_jd: Union[float, numpy.ndarray],
         source_radec_rad: Tuple[float, float],
         ant_coordinates: numpy.ndarray,
         longlatalt_rad: Tuple[float, float, float],
@@ -223,7 +226,10 @@ def compute_uvw_from_xyz(
     sin_declination = numpy.sin(dec_rad)
     cos_declination = numpy.cos(dec_rad)
 
-    uvws = numpy.zeros(ant_coordinates.shape, dtype=numpy.float64)
+    T = 1
+    if isinstance(time_jd, numpy.ndarray):
+        T = time_jd.size
+    uvws = numpy.zeros(((T,) + ant_coordinates.shape), dtype=numpy.float64)
 
     for ant in range(ant_coordinates.shape[0]):
         # RotZ(long-ha) anti-clockwise
@@ -237,8 +243,8 @@ def compute_uvw_from_xyz(
         z = -sin_declination*x_ + cos_declination*z
 
         # Permute (WUV) to (UVW)
-        uvws[ant, 0] = y
-        uvws[ant, 1] = z
-        uvws[ant, 2] = x
+        uvws[:, ant, 0] = y
+        uvws[:, ant, 1] = z
+        uvws[:, ant, 2] = x
 
-    return uvws
+    return uvws[0, :, :] if isinstance(time_jd, float) else uvws

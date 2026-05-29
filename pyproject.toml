@@ -18,7 +18,7 @@ classifiers = [
 dependencies = [
   "h5py",
   "tomli",
-  "pyerfa",
+  "pyerfa >= 2.0.0",
   "guppi @ git+https://github.com/MydonSolutions/guppi@v2.0",
   "pyproj",
   "pyyaml",
