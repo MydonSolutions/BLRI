@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 from dataclasses import dataclass
 from blri.fileformats.hdf5 import hdf5_fields_are_equal, hdf5_field_get
 
