@@ -217,7 +217,7 @@ def uvh5_write_chunk(
     uvh5_datasets.header_time_array[-num_blts:] = numpy.repeat(jd_time_array, num_bls)
 
     uvh5_datasets.header_integration_time.resize((num_bltimes,))
-    uvh5_datasets.header_integration_time[-num_blts:] = integration_time
+    uvh5_datasets.header_integration_time[-num_blts:] = numpy.ones(num_blts)*integration_time
 
     uvh5_datasets.data_visdata.resize((num_bltimes, num_freqs, num_polprods))
     if num_blts > 1:
