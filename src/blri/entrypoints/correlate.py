@@ -305,6 +305,8 @@ def correlate(
 
     ant_1_array, ant_2_array = uvh5.get_uvh5_ant_arrays(telinfo.antennas)
     num_bls = len(ant_1_array)
+    ant_1_array = numpy.array(ant_1_array)
+    ant_2_array = numpy.array(ant_2_array)
 
     assert len(correlation_iter.metadata.polarisation_chars) == correlation_iter.metadata.nof_polarisation
     polproducts = [
