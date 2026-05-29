@@ -237,7 +237,7 @@ def uvh5_write_chunk(
     uvh5_datasets.header_integration_time.resize((num_bltimes,))
     uvh5_datasets.header_integration_time[-num_blts:] = numpy.ones(num_blts)*integration_time
     elapsed_s = 1e-9*(time.perf_counter_ns() - t)
-    blri_logger.debug(f"Broadcast x{num_blts} integration_time: {elapsed_s:0.3f} s, {(integration_time.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
+    blri_logger.debug(f"Broadcast x{num_blts} integration_time: {elapsed_s:0.3f} s, {(num_blts*integration_time.itemsize)/(elapsed_s*10**6):0.3f} MB/s")
 
     t = time.perf_counter_ns()
     uvh5_datasets.data_visdata.resize((num_bltimes, num_freqs, num_polprods))
