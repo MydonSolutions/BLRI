@@ -20,12 +20,17 @@ dependencies = [
   "tomli",
   "pyerfa >= 2.0.0",
   "guppi @ git+https://github.com/MydonSolutions/guppi@v2.0",
-  "seticore @ git+https://github.com/MydonSolutions/seticore@python#egg=seticore&subdirectory=python",
   "pyproj",
   "pyyaml",
   "pydantic",
   "numpy"
 ]
+
+[project.optional-dependencies]
+seticore = [
+    "seticore @ git+https://github.com/MydonSolutions/seticore@python#egg=seticore&subdirectory=python"
+]
+
 dynamic = ["version"]
 
 [tool.setuptools_scm]
