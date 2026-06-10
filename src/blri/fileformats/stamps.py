@@ -17,7 +17,10 @@ class InputStampIterator:
         running_time_unix: float
 
     def __init__(self, stamp_filepaths: List[str], stamp_index=0, timestep_increment=0):
-        from seticore import stamp_capnp # TODO better handle optional package dependency
+        try:
+            from seticore import stamp_capnp
+        except ImportError as e:
+            raise ImportError('seticore is required to read Stamp files. Please reinstall BLRI with optional dependency i.e. pip install "./BLRI[seticore]"') from e
 
         self.stamp = None
         self.stamp_filepath = stamp_filepaths[0]

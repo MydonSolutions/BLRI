@@ -27,6 +27,11 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.optional-dependencies]
+seticore = [
+    "seticore @ git+https://github.com/MydonSolutions/seticore@python#egg=seticore&subdirectory=python"
+]
+
 [tool.setuptools_scm]
 version_file = "src/blri/_version.py"
 

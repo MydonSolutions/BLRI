@@ -276,13 +276,13 @@ class CorrelationIterator:
                 progress_elapsed_s = 1e-9*(t - t_progress)
                 t_progress = t
 
-                blri_logger.info_blocks(f"Read time:            {read_elapsed_s:0.3f} s     ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
-                blri_logger.info_blocks(f"Concat time:          {concat_elapsed_s:0.3f} s   ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Read time:            {read_elapsed_s:0.3f} s ({100*read_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Concat time:          {concat_elapsed_s:0.3f} s ({100*concat_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Transfer (H2D) time:  {transfer_h2d_elapsed_s:0.3f} s ({100*transfer_h2d_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Transfer (D2H) time:  {transfer_d2h_elapsed_s:0.3f} s ({100*transfer_d2h_elapsed_s/progress_elapsed_s:0.2f} %)")
-                blri_logger.info_blocks(f"Reorder time:         {reorder_elapsed_s:0.3f} s  ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"Reorder time:         {reorder_elapsed_s:0.3f} s ({100*reorder_elapsed_s/progress_elapsed_s:0.2f} %)")
                 external_elapsed_s = total_elapsed_s - (read_elapsed_s + concat_elapsed_s + transfer_h2d_elapsed_s + transfer_d2h_elapsed_s + reorder_elapsed_s)
-                blri_logger.info_blocks(f"External time:        {external_elapsed_s:0.3f} s  ({100*external_elapsed_s/progress_elapsed_s:0.2f} %)")
+                blri_logger.info_blocks(f"External time:        {external_elapsed_s:0.3f} s ({100*external_elapsed_s/progress_elapsed_s:0.2f} %)")
                 blri_logger.info_blocks(f"Running throughput:   {datasize_processed/(total_elapsed_s*10**6):0.3f} MB/s")
                 blri_logger.info(f"Progress: {datasize_processed/10**6:0.3f}/{self._inputhandler.data_bytes_total()/10**6:0.3f} MB ({100*progress:03.02f}%). Elapsed: {total_elapsed_s:0.3f} s, ETC: {total_elapsed_s*(1-progress)/progress:0.3f} s")
                 transfer_h2d_elapsed_s = 0.0
@@ -371,7 +371,6 @@ def correlate(
 
     dut1 = correlation_iter.metadata.dut1_s
 
-    jd_time_array = numpy.array((num_bls,), dtype='d')
     integration_time = numpy.array((num_bls,), dtype='d')
     integration_time.fill(upchannelisation_rate*integration_rate*correlation_iter.metadata.spectra_timespan_s)
     flags = numpy.zeros((num_bls, len(correlation_iter.frequencies_mhz), len(polproducts)), dtype='?')
@@ -402,6 +401,7 @@ def correlate(
         
         for correlation_tuple in correlation_iter.data():
             correlation, time_jds = correlation_tuple
+            # TODO warn if time_jds are not all unique
             t = time.perf_counter_ns()
 
             uvw_arrays = uvh5.get_uvw_array(
